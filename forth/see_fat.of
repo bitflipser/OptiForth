@@ -151,7 +151,7 @@ dup u.4
 *@ 9409 = if 5sp ." ijmp"    0=  cr exit then \ 'drop 0'->'0='
 *@ 940e = if *@+ @xtaddr dup c>n                              
                      7 = if 4 - c>n                           
-                     p 7 = if drop @xtaddr u.4 4 + cr exit    
+                     dup 7 = if drop @xtaddr u.4 4 + cr exit  
                            else ." temp " .id 4 + cr exit then
                          else c>n dup .id                     
                            xsquote = if space 4 + dup c@+ tuck
