@@ -1,0 +1,41 @@
+\ *********************************************************************
+\    Filename:      blink.of                                          *
+\    Date:          05.12.2020                                        *
+\    MCU:           ATmega328P                                        *
+\    Copyright:     bitflipser                                        *
+\    Author:        bitflipser                                        *
+\ *********************************************************************
+\ OptiForth is MIT licensed                                           *
+\ *********************************************************************
+\ tests for the optimizing compiler ('optimizingCOMPILER = 1' only)
+\ and the 'ms' timing              
+\                                  
+-blink                             
+marker -blink                      
+$23 constant PINB $20 constant bit5
+: togPB5 bit5 PINB mset ; inlined ( with optimizing compiler only! )
+: blink begin togPB5 over ms 1- 0until 2drop ;
+
+\ set the fastest possible loop for LED blinking
+: tspeed
+    ticks>n 
+    #20 for 
+          dup begin togPB5 1- 0until drop
+        next drop
+    ticks=                              ;
+
+\ measure compiling time
+marker -tb                            
+ticks
+: tb1000 ticks #1 #1000 blink ticks= ;
+: tb100  ticks #10 #100 blink ticks= ;
+: tb10   ticks #100 #10 blink ticks= ;
+: tb1    ticks #1000 #1 blink ticks= ;
+ticks= u. \ compiling time:
+( done )
+\ check code efficiency                     
+\ time [ms] for 1.000.000 accesses to PINB  
+\ optimized & inlined: 439 ms, w/o: 3.378 ms
+decimal 50.000 tspeed u.      \ [ms]:
+\ check correct timing of 'ms'
+tb1 u. tb10 u. tb100 u. tb1000 u. \ all equal #1.000?

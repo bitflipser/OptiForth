@@ -1,0 +1,37 @@
+\ needs asm.of
+\ modified to match OptiForth: 30.11.2020 by bitflipser
+
+-asmexamples
+marker -asmexamples
+
+\ Top of stack is always cached in R24:R25
+
+\ duplicate top of stack
+\ identical to DUP on FlashForth
+: _dup ( n -- n n )
+  [ R25 -Y st, ]
+  [ R24 -Y st, ]
+; inlined
+
+\ drop top of stack
+\ identical to DROP on FlashForth
+: _drop ( n -- )
+  [ R24 Y+ ld, ]
+  [ R25 Y+ ld, ]
+; inlined
+
+\ Load constant $1234 to top of stack  
+: a-number ( -- 1234 )
+  _dup              \ Make space for new TOS value
+  [ R24 $34 ldi, ]
+  [ R25 $12 ldi, ]
+;
+
+\ Pop the top of stack to registers R10:R11
+\ R10 and R11 are free to use (forth register A)
+: tos-to-a ( n -- )
+  [ R10 R24 movw, ]  \ Move TOS to R10:R11
+  _drop              \ load R24:R25 with new TOS
+;
+
+

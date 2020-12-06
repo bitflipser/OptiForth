@@ -1,0 +1,59 @@
+\ *********************************************************************
+\    Filename:      sieve3.of                                         *
+\    Date:          05.12.2020                                        *
+\    MCU:           ATmega328P                                        *
+\    Copyright:     bitflipser                                        *
+\    Author:        bitflipser                                        *
+\ *********************************************************************
+\ OptiForth is MIT licensed                                           *
+\ *********************************************************************
+\ Sieve of Eratosthenes                                                
+\ search and count pimes up to a given number (8.192 in the example)   
+\ search is done by marking all multiples of a found prime as non-prime
+\ all even numbers are skipped as multiples of 2, search starts with 3 
+\ the example requires 512/520 bytes of RAM                            
+-sieve3
+marker -sieve3
+decimal ram
+
+8192 2/ constant size3    \ need only odd positions
+variable flags3 size3 8 / 2- allot                 
+variable bmTab 6 allot \ look-up tabel for bit mask
+
+: fill3 ( c n -- ) \ fill n bytes of flags3 with c
+        flags3 !p>r for dup pc! p+ next drop r>p ;
+
+: bit-addr ( bit -- bit mask eff-addr )
+                         \ 11.224 calls
+\   1 over 7 and lshift         \ 86 ms
+    dup 7 and bmTab + mc@       \ 54 ms
+    over 2/ 2/ 2/ flags3 +            ;
+
+ : dup>a [ $015c i, ] ; inlined          \      
+ : a>+   [ $0d8a i, $1d9b i, ] ; inlined \      
+ : @p+   [ $0f84 i, $1f95 i, ] ; inlined \ 49 ms
+: sieve3
+  $0201   bmTab !    \ initialize look-up table
+  $0804 [ bmTab 2+  ] literal !                
+  $2010 [ bmTab 4 + ] literal !                
+  $8040 [ bmTab 6 + ] literal !                
+  $ff [ size3 8 / ] literal fill3              
+  1  \ skip even, init count to 1 for prime '2'
+  1 !p>r        \ start with 3 (bit position 1)
+  size3 for
+     @p bit-addr mtst
+     if         \ found prime -> mark multiples
+        2* 1+ dup>a       \ step:  bit * 2 + 1
+        @p+               \ start: bit + step 
+        begin dup size3 u< 
+        while bit-addr mclr
+              a>+
+        repeat             
+        drop 1+           
+     else drop             
+     then                  
+     p+                    
+  next
+  r>p   . ." primes" cr   ;
+: bench3 ticks sieve3 ticks= u. ." milliseconds" cr ;
+bench3

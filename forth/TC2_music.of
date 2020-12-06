@@ -1,0 +1,87 @@
+\ *********************************************************************
+\    Filename:      TC2_music.of                                      *
+\    Date:          05.12.2020                                        *
+\    MCU:           ATmega328P                                        *
+\    Copyright:     bitflipser                                        *
+\    Author:        bitflipser                                        *
+\ *********************************************************************
+\ OptiForth is MIT licensed                                           *
+\ *********************************************************************
+\ some simple sound using TC2 and OC2A (11)       
+\ connect a simple speaker to OC2A (11) and GND   
+\ can be run as background task - see 'bgMusic.of'
+\ tempo:  PRESTO MODERATO LENTO                   
+\ height: HIGH   MID      LOW                     
+-music                                 
+marker -music                          
+$b0 constant TCCR2A $b1 constant TCCR2B
+$b2 constant TCNT2  $b3 constant OCR2A 
+$08 constant bit3   $24 constant DDRB  
+variable tccr2                         
+: tone+ ( fticks -- )             \ 16 MHz/128 ticks at half wave
+    bit3 DDRB mset OCR2A c! 0 TCNT2 c! tccr2 @ TCCR2A ! ;        
+: tone- $07 TCCR2B mclr 1 ms ;                                   
+
+variable tempo ( ms -- ) \ one 8th in ms                         
+: ?tempo
+    tempo @
+    #20 u< if ." Set 'tempo' and 'height' first!" abort then ;   
+: PRESTO   #125 tempo ! ; : MODERATO #200 tempo ! ;              
+: LENTO    #400 tempo ! ;                                        
+: /8 1 ; : /4 2 ; : /2 4 ; : /1 8 ;                              
+: LOW $642 tccr2 ! ; : MID $542 tccr2 ! ; : HIGH $442 tccr2 ! ;  
+: p   ( u -- )
+    begin tempo @ ms 1- 0until drop ;                            
+: playnote ( u fticks -- )
+    tone+ p tone- ;                                              
+: c'  #238 playnote ; : d'  #212 playnote ; : e'  #189 playnote ;
+: f'  #178 playnote ; : g'  #158 playnote ; : a'  #141 playnote ;
+: h'  #126 playnote ; : c'' #118 playnote ; : d'' #105 playnote ;
+\ ------------------
+\ Alle meine Entchen
+: amE
+  ?tempo                             
+  /8 c' /8 d' /8 e' /8 f' /4 g' /4 g'
+  /8 a' /8 a' /8 a' /8 a' /2 g'      
+  /8 a' /8 a' /8 a' /8 a' /2 g'      
+  /8 f' /8 f' /8 f' /8 f' /4 e' /4 e'
+  /8 d' /8 d' /8 d' /8 d' /2 c'     ;
+: playamE MODERATO MID amE ;         
+\ -----------------------------------
+\ Fuchs, Du hast die Gans gestohlen  
+: FG
+  ?tempo                                           
+  /4 d' /4 e' /4 f' /4 g'	/4 a' /4 a' /4 a' /4 a'
+  /4 h' /4 g' /4 d'' /4 h'	/1 a'                  
+  /4 h' /4 g' /4 d'' /4 h'	/1 a'                  
+  /4 a' /4 g' /4 g' /4 g'	/4 g' /4 f' /4 f' /4 f'
+  /4 f' /4 e' /4 f' /4 e'	/4 d' /4 f' /2 a'      
+  /4 a' /4 g' /4 g' /4 g'	/4 g' /4 f' /4 f' /4 f'
+  /4 f' /4 e' /4 f' /4 e'	/1 d'                 ;
+: playFG PRESTO LOW FG MODERATO MID ;              
+\ ---------------
+\ Haenschen klein
+: Hk
+  ?tempo                                     
+  /4 g' /4 e' /2 e'			/4 f' /4 d' /2 d'
+  /4 c' /4 d' /4 e' /4 f'	/4 g' /4 g' /2 g'
+  /4 g' /4 e' /2 e'			/4 f' /4 d' /2 d'
+  /4 c' /4 e' /4 g' /4 g'	/1 c'            
+  /4 d' /4 d' /4 d' /4 d'	/4 d' /4 e' /2 f'
+  /4 e' /4 e' /4 e' /4 e'	/4 e' /4 f' /2 g'
+  /4 g' /4 e' /2 e'			/4 f' /4 d' /2 d'
+  /4 c' /4 e' /4 g' /4 g'	/1 c'           ;
+: playHk MODERATO MID Hk ;                   
+\ ---------------------
+\ Haeschen in der Grube
+: HG
+?tempo                                            
+  /8 d' /8 e' /8 f' /8 g'		/4 a' /4 a'       
+  /8 h' /8 g' /8 d'' /8 h'		/2 a'             
+  /8 h' /8 g' /8 d'' /8 h'		/2 a'             
+  /8 a' /8 g' /8 g' /8 g'		/8 g' /8 f' /4 f' 
+  /8 f' /8 e' /8 f'  /8 e'		/8 d' /8 f' /4 a' 
+  /8 a' /8 a' /4 d''			/8 a' /8 a' /4 d''
+  /4 a' /4 a'					/2 d'            ;
+: playHG PRESTO MID HG MODERATO MID ;             
+( done )

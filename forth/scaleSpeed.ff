@@ -1,0 +1,106 @@
+\ *********************************************************************
+\    Filename:      scaleSpeed.of                                     *
+\    Date:          05.12.2020                                        *
+\    MCU:           ATmega328P                                        *
+\    Copyright:     bitflipser                                        *
+\    Author:        bitflipser                                        *
+\ *********************************************************************
+\ OptiForth is MIT licensed                                           *
+\ *********************************************************************
+\ file version for FlashForth 5.0
+\ testing the compiled code for                          
+\ 'dup lit > if' 'dup lit u< if'
+\ 'dup lit < if' 'dup lit u> if'                    
+\ computes                                      
+\ -the circle area for radius r from 1 to 144
+\  (fixed point math: r^2 * pi)              
+\ -the run time                              
+\                                            
+-scaleSpeed                    
+marker -scaleSpeed            
+: .nhelp $2c hold #s #> type ;
+: .4 0 <# # # # # .nhelp     ;
+: .3 0 <# # # # .nhelp       ;
+: .2 0 <# # # .nhelp         ;
+: .1 0 <# # .nhelp           ;
+: .0 u.                      ;
+decimal
+: csu< ( r -- )
+    ticks swap
+    #1.000 for dup
+    begin
+      dup
+            dup   1 =  if                           31415 + drop
+      else  dup   5 u< if 10 * dup * 32170 1024 u*/mod drop drop
+      else  dup  15 u< if 10 * dup *  3217 1024 u*/mod drop drop
+      else  dup  46 u< if      dup * 32170 1024 u*/mod drop drop
+      else  dup 145 u< if      dup *  3217 1024 u*/mod drop drop
+      else drop
+      then then then then then
+    1- dup 0= until drop
+    next drop
+    ticks swap -                                           ;
+: csu> ( r -- )
+    ticks swap
+    #1.000 for dup
+    begin
+      dup
+              dup 144 u> if                                   drop
+        else  dup  45 u> if      dup *  3217 1024 u*/mod drop drop
+        else  dup  14 u> if      dup * 32170 1024 u*/mod drop drop
+        else  dup   4 u> if 10 * dup *  3217 1024 u*/mod drop drop
+        else  dup   1 u> if 10 * dup * 32170 1024 u*/mod drop drop
+        else      ( r = 1 )                           31415 + drop
+      then then then then then
+    1- dup 0= until drop
+    next drop
+    ticks swap -                                           ;
+: csu<_ ( r -- )
+    ticks swap
+    #1.000 for dup
+    begin
+      dup
+            dup   1 =  if                       31415  +    drop
+      else  dup   5 u< if 10 * dup * 32170 1024 u*/mod drop drop
+      else  dup  15 u< if 10 * dup *  3217 1024 u*/mod drop drop
+      else  dup  46 u< if      dup * 32170 1024 u*/mod drop drop
+      else  dup 145 u< if      dup *  3217 1024 u*/mod drop drop
+      else drop
+      then then then then then
+    1- dup 0= until drop
+    next drop 
+    ticks swap -                                          ;
+: cs< ( r -- )
+    ticks swap
+    #1.000 for dup
+    begin
+      dup
+            dup   1 = if                           31415 + drop
+      else  dup   5 < if 10 * dup * 32170 1024 u*/mod drop drop
+      else  dup  15 < if 10 * dup *  3217 1024 u*/mod drop drop
+      else  dup  46 < if      dup * 32170 1024 u*/mod drop drop
+      else  dup 145 < if      dup *  3217 1024 u*/mod drop drop
+      else drop
+      then then then then then
+    1- dup 0= until drop
+    next drop
+    ticks swap -                                           ;
+: cs> ( r -- )
+    ticks swap
+    #1.000 for dup
+      begin
+        dup
+              dup 144 > if                                   drop
+        else  dup  45 > if      dup *  3217 1024 u*/mod drop drop
+        else  dup  14 > if      dup * 32170 1024 u*/mod drop drop
+        else  dup   4 > if 10 * dup *  3217 1024 u*/mod drop drop
+        else  dup   1 > if 10 * dup * 32170 1024 u*/mod drop drop
+        else      ( r = 1 )                          31415 + drop
+        then then then then then
+      1- dup 0= until drop
+    next drop
+    ticks swap -                                           ;
+: wsx 144 csu<_ 144 csu< 144 csu> 144 cs< 144 cs>          ;
+( done )
+\    [ms]  noopt_u<   u<   u>    <    >
+wsx

@@ -1,0 +1,29 @@
+\ *********************************************************************
+\    Filename:      free.of                                           *
+\    Date:          05.12.2020                                        *
+\    MCU:           ATmega328P                                        *
+\    Copyright:     bitflipser                                        *
+\    Author:        bitflipser                                        *
+\ *********************************************************************
+\ OptiForth is MIT licensed                                           *
+\ *********************************************************************
+\ display free memory                       
+\ for 'decimal' 'u.r' accepts the           
+\ specification of a leading char in hi-byte
+\ e.g. ' ' -> $20.. u.r                     
+\                                           
+\ MCU with eeprom                           
+: .by hi 1+ here - $2005 u.r ." bytes" cr ; 
+: .free
+  cr 
+  ." FLASH :" flash  .by
+  ." EEPROM:" eeprom .by
+  ." RAM   :" ram    .by ;                  
+
+: fl_era     \ erase free flash memory
+    flash
+    ihere 2- dup hi swap- u2/
+    for 2+ $ffff over ! next drop
+    ram ;                                   
+( done )
+.free

@@ -1,0 +1,25 @@
+\ *********************************************************************
+\    Filename:      tableTest.of                                      *
+\    Date:          05.12.2020                                        *
+\    MCU:           ATmega328P                                        *
+\    Copyright:     bitflipser                                        *
+\    Author:        bitflipser                                        *
+\ *********************************************************************
+\ OptiForth is MIT licensed                                           *
+\ *********************************************************************
+\ table test according to the exsamples in 'OptiForth52.asm'
+-table
+marker -table
+: table create #10 cells allot 
+        does> swap 
+              dup #9 u> if ." Index out of range!" abort then
+              cells + 
+;
+ram	 table table_r
+flash	 table table_f
+eeprom	 table table_e
+eeprom	 create calibrationtabl #30 allot ram
+( done )
+' -table c>n hex c0 dump
+0 table_e 40 dump
+0 table_r 40 dump decimal

@@ -1,0 +1,51 @@
+\ *********************************************************************
+\    Filename:      core.txt                                          *
+\    Date:          31.12.2013                                        *
+\    FF Version:    5.0                                               *
+\    Copyright:     Mikael Nordman                                    *
+\    Author:        Mikael Nordman                                    *
+\                                                                     *
+\    modified:      30.11.2020                                        *
+\    OF Version:    5.2                                               *
+\    by:            bitflipser                                        *
+\ *********************************************************************
+\    FlashForth is licensed acording to the GNU General Public License*
+\ *********************************************************************
+\ Some extra core words
+\ modified to match OptiForth
+
+-core
+marker -core
+hex ram
+
+\ Interpret a string. The string must be in ram
+: evaluate ( caddr n -- )
+  'source 2@ >r >r >in @ >r
+  interpret
+  r> >in ! r> r> 'source 2!
+;
+
+\ fill addr to addr+n with c
+: fill ( addr n c -- ) 
+    rot !p>r swap for dup pc! p+ next r>p drop ;
+
+\  addr n --
+: erase  0 fill ;
+
+\ addr n --
+: blanks bl fill ;
+
+\ x -- 0 | x x
+: ?dup dup if dup then ;
+
+\ is it an 'inline' word?
+: in? ( nfa -- flag ) 
+    c@ $20 and ;       \ OF inline-flag bit 5
+\ is it an 'immediate' word?
+: im? ( nfa -- flag ) 
+    c@ $40 and ;       \ OF immediate-flag bit 6
+
+\ get length of a counted string
+: count ( c-addr -- addr+1 n )
+    c@+ ;
+decimal

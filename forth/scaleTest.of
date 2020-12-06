@@ -1,0 +1,72 @@
+\ *********************************************************************
+\    Filename:      scaleTest.of                                      *
+\    Date:          05.12.2020                                        *
+\    MCU:           ATmega328P                                        *
+\    Copyright:     bitflipser                                        *
+\    Author:        bitflipser                                        *
+\ *********************************************************************
+\ OptiForth is MIT licensed                                           *
+\ *********************************************************************
+\ testing the scale operator '1024*/' and the
+\ compiled code for                          
+\ 'dup lit > if' 'dup lit u< if' 'lit 1024*/'
+\ 'dup lit < if' 'dup lit u> if'             
+\ lists                                      
+\ -the run time                              
+\ -the circle area for radius r from 1 to 144
+\  (fixed point math: r^2 * pi)              
+\ wsy lists the processor load too           
+-scaleTest                    
+marker -scaleTest             
+: .nhelp $2c hold #s #> type ;
+: .4 0 <# # # # # .nhelp ;    
+: .3 0 <# # # # .nhelp ;      
+: .2 0 <# # # .nhelp ;        
+: .1 0 <# # .nhelp ;          
+: .0 u. ;                     
+decimal
+: circAu ( r -- )
+    ticks>n
+    begin
+      dup cr
+      dup 3 u.r
+            dup   1 =  if               31415 + .4
+      else  dup   5 u< if 10 * sqr 32170 1024*/ .3
+      else  dup  15 u< if 10 * sqr  3217 1024*/ .2
+      else  dup  46 u< if      sqr 32170 1024*/ .1
+      else  dup 145 u< if      sqr  3217 1024*/ .0
+      else drop ." :-(" 
+      then then then then then
+    1- dup 0= until drop
+    cr ticks= u. ." ms" ;
+: circA ( r -- )
+    ticks>n
+    begin
+      dup cr
+      dup 3 u.r
+            dup   1 = if               31415 + .4
+      else  dup   5 < if 10 * sqr 32170 1024*/ .3
+      else  dup  15 < if 10 * sqr  3217 1024*/ .2
+      else  dup  46 < if      sqr 32170 1024*/ .1
+      else  dup 145 < if      sqr  3217 1024*/ .0
+      else drop ." :-(" 
+      then then then then then
+    1- dup 0= until drop
+    cr ticks= u. ." ms" ;
+: circB ( r -- )
+   ticks>n
+   begin
+     dup cr
+     dup 3 u.r
+           dup 144 > if  drop            ." :-("
+     else  dup  45 > if      sqr  3217 1024*/ .0
+     else  dup  14 > if      sqr 32170 1024*/ .1
+     else  dup   4 > if 10 * sqr  3217 1024*/ .2
+     else  dup   1 > if 10 * sqr 32170 1024*/ .3
+     else                             31415 + .4
+     then then then then then
+   1- dup 0= until drop
+   cr ticks= u. ." ms" ;
+: wsy idle 145 circA 145 circAu load 145 circA load 145 circB load ;
+( done )
+10 circAu 10 circA 10 circB

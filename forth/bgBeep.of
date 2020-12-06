@@ -1,0 +1,21 @@
+\ *********************************************************************
+\    Filename:      bgBeep.of                                         *
+\    Date:          05.12.2020                                        *
+\    MCU:           ATmega328P                                        *
+\    Copyright:     bitflipser                                        *
+\    Author:        bitflipser                                        *
+\ *********************************************************************
+\ OptiForth is MIT licensed                                           *
+\ *********************************************************************
+\ for task switching tests only!  
+\ set up a background tasks that  
+\ sends a beep to tx0 every second
+
+-bgBeep                              
+marker -bgBeep                       
+0 #2 #8 0 task: bgBeep               
+: beep begin #1000 ms $07 tx0 again ;
+' beep bgBeep t_init
+bgBeep t_run
+tasks
+( done )

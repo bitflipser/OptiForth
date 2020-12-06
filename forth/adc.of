@@ -1,0 +1,57 @@
+\ *********************************************************************
+\    Filename:      adc.of                                            *
+\    Date:          05.12.2020                                        *
+\    MCU:           ATmega328P                                        *
+\    Copyright:     bitflipser                                        *
+\    Author:        bitflipser                                        *
+\ *********************************************************************
+\ OptiForth is MIT licensed                                           *
+\ *********************************************************************
+\ reading the internal ADC
+\ based on
+\ http://www.ckuehnel.ch/dokuwiki/doku.php?id=read_adc
+
+-adc                                               
+marker -adc                                        
+      $7c constant ADMUX       $7a constant ADCSRA 
+      $7b constant ADCSRB      $78 constant ADCdata
+    %1111 constant GND       %1110 constant Vbg    
+%11001000 constant T     %01000000 constant REF ( AVcc as reference )
+      $40 constant ADSC      $2005 constant col    
+: adc_init $87 ADCSRA c! ;                                  
+: adc@ ( ch -- )
+    REF or ADMUX c!
+    ADSC ADCSRA mset
+    begin pause ADSC ADCSRA mtst0 0until
+    ADCdata @                                              ;
+variable Vref
+: setVref
+    ." set Vref: "
+    tib dup 1+ 7 accept over c!
+    number?
+    dup 0= if ."  Keine Zahl!" abort then
+      1 <> if drop then \ drop high of double
+    Vref ! cr ;                                             
+: .result dup 5 u.r Vref @ 1024*/ ." ->" col u.r ." mV" cr ;
+: drop1st dup adc@ drop #100 ms ;                           
+: main ( ch -- )
+    cr adc_init setVref drop1st
+    begin dup adc@ .result #500 ms key? until drop
+    key drop                                               ;
+: adc-test1
+    cr adc_init
+    ." ADC Test for Ardunio Uno with internal sources" cr
+    setVref
+    ." GND:  " GND drop1st adc@ .result
+    ." Vbg:  " Vbg drop1st adc@ .result
+    #1100 Vref !
+    ." TEMP: " T   drop1st adc@ .result                    ;
+: adc-test2
+    cr adc_init
+    ." ADC Test with external source" cr
+    setVref
+    ." Put known voltage to (A0) and enter its value in mV." cr
+    ." Enter voltage : " tib 5 accept drop cr
+    ." Measured value: " 0 drop1st adc@ .result            ;
+( done )
+adc-test1

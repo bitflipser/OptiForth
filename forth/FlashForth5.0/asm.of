@@ -1,0 +1,246 @@
+\ *********************************************************************
+\    Filename:      asm.txt                                           *
+\    Date:          03.02.2014                                        *
+\    FF Version:    5.0                                               *
+\    MCU:           Atmega                                            *
+\    Copyright:     Mikael Nordman                                    *
+\    Author:        Mikael Nordman                                    *
+\                                                                     *
+\    modified:      30.11.2020                                        *
+\    by:            bitflipser                                        *
+\ *********************************************************************
+\    FlashForth is licensed acording to the GNU General Public License*
+\ *********************************************************************
+\ FlashForth assembler for Atmega chips
+\ modified to match OptiForth
+-as
+marker -as
+hex
+\ Fetch src from addr and append to dictinary via mask
+: mask,  ( dest1 addr -- )
+    @ or i, ;
+\ Create name and data field for opcode in flash
+: create,, flash create , ram ;
+
+: Rd,Rr:    ( Rd Rr opcode -- xxxz.xxrd.dddd.rrrr )
+  create,,
+  does> >a
+    $1f and dup #32 * or $20f and      \ -- Rd r0.0000.rrrr
+    swap #16 * $1f0 and or             \ -- rd.dddd.rrrr
+    a> @ or                            \ -- ddrr opcode mask!
+    dup $fc07 and $9000 =
+    if $efff and then i, ;             \ if Z or Y then z=0
+
+: Rd:        ( Rd opcode -- xxxx.xxxd.dddd.xxxx )
+  create,,
+  does> >a 
+    #16 * $1f0 and                 \ -- 0ddddd0000
+    a> mask, ;
+
+ \ Operands Rd,constant 8bit
+: Rd,k:     ( Rd k8 opcode -- xxxx.kkkk.dddd.kkkk )
+  create,,
+  does> >a 
+    $ff and dup #16 * or $f0f and  \ -- Rd kkkk0000kkkk
+    swap #16 * $f0 and or          \ -- kk.dddd.kkkk
+    a> mask, ;                     \ kkdd opcode mask! to flash
+
+\ Operands Rd,Rr,constant 6bit
+: Rd,Rr+q:  ( Rd Rr k6 opcode -- xxkx.kkxd.dddd.rkkk )
+  create,,
+  does> >a 
+    3f and dup #128 * or                \ -- Rd Rr xxxk.kkkk.k000.0kkk
+    dup $1000 and 2* swap 0c07 and or   \ -- Rd Rr 00k0.kk00.0000.0kkk
+    swap 8 and or                       \ -- Rd 00k0.kk00.0000.rkkk
+    swap #16 * $1f0 and or              \ -- 00k0.kk0d.dddd.rkkk
+    a> mask, ;                          \ kkddrr opcode mask! to flash
+
+
+\ Operands Rw pair,constant 6bit
+: Rw,k:     ( Rw k6 opcode -- xxxx.xxxx.kkww.kkkk )
+  create,,
+  does> >a 
+    dup 2* 2* $c0 and                  \ -- Rw k6 kk00.0000
+    swap $f and or                     \ -- Rw kk00.kkkk
+    swap #16 * $30 and or              \ -- kkww.kkkk
+    a> mask, ;                         \ kkww opcode mask! to flash
+
+\ Operands P-port,bit
+: P,b:      ( P b opcode -- xxxx.xxxx.PPPP.Pbbb )
+  create,,
+  does> >a 
+    $7 and swap 2* 2* 2* f8 and or     \ -- PPPP.Pbbb
+    a> mask, ;                         \ PPbb opcode mask! to flash
+
+\ Operands Rd,P-port
+: Rd,P:     ( Rd P opcode -- xxxx.xPPd.dddd.PPPP )
+  create,,
+  does> >a 
+    3f and dup #32 * or $60f and       \ -- Rd PP0.0000.PPPP
+    swap #16 * $1f0 and or             \ -- PP PPd.dddd.PPPP
+    a> mask, ;                         \ ddPP opcode mask! to flash
+
+
+\ Operand k16 k6
+: k22:      ( k16 k6 opcode -- k16 xxxx.xxxk.kkkk.xxxk )
+  create,,
+  does> >a 
+    dup $1 and swap 2* 2* 2* 1f and or \ -- 000k.kkkk.000k
+    a> mask,  i, ;                     \ k16 kk opcode mask! to flash
+
+\ Opcode only to flash
+: op:       ( opcode -- )
+  flash create , ram does> @ i, ;
+
+
+0100 Rd,Rr: movw_ 
+: movw,   u2/ swap        \ R0:1,R2:3,R4:5,..R30:31
+          u2/ swap        \ 0 2 movw, R0:1<--R2:3
+          movw_ ;              \ Rd Rr --
+9c00  Rd,Rr: mul,         \ Rd Rr --
+0200  Rd,Rr: muls,        \ Rd Rr --
+0300  Rd,Rr: mulsu,       \ Rd Rr --
+0308  Rd,Rr: fmul,        \ Rd Rr --
+0380  Rd,Rr: fmuls,       \ Rd Rr --
+0388  Rd,Rr: fmulsu,      \ Rd Rr --
+0400  Rd,Rr: cpc,         \ Rd Rr --
+0800  Rd,Rr: sbc,         \ Rd Rr --
+0c00  Rd,Rr: add,         \ Rd Rr --
+1000  Rd,Rr: cpse,        \ Rd Rr --
+1400  Rd,Rr: cp,          \ Rd Rr --
+1800  Rd,Rr: sub,         \ Rd Rr --
+1c00  Rd,Rr: adc,         \ Rd Rr --
+2000  Rd,Rr: and,         \ Rd Rr --
+2400  Rd,Rr: eor,         \ Rd Rr --
+2800  Rd,Rr: or,          \ Rd Rr --
+2c00  Rd,Rr: mov,         \ Rd Rr --
+
+3000  Rd,k: cpi,          \ Rd k --
+4000  Rd,k: sbci,         \ Rd k --
+5000  Rd,k: subi,         \ Rd k --
+6000  Rd,k: ori,          \ Rd k --
+: sbr,    ori, ;               \ Rd k --
+7000  Rd,k: andi,         \ Rd k --
+: cbr,    invert andi, ;
+e000  Rd,k: ldi,
+
+ 
+8000  Rd,Rr+q: ldd, ( Rd Rr q -- ) \ Rr={Z+,Y+}, 2 Y+ 3F ldd,
+8200  Rd,Rr+q: std, ( Rr Rd q -- ) \ Rd={Z+,Y+}, Y+ 3F 2 std,
+
+9000  Rd,Rr: ld,  ( Rd Rr -- ) \ Rr={Z+,-Z,Y+,-Y,X+,-X,X,Y,Z}
+9000  Rd: lds_
+: lds,     swap lds_ i, ;       \ Rd k16 -- )
+
+9004  Rd,Rr: lpm,  ( Rd Rr -- ) \ Rr={Z,Z+}, 2 Z+ lpm,
+9006  Rd,Rr: elpm,  ( Rd Rr -- ) \ Rr={Z,Z+}
+9200  Rd,Rr: st,  ( Rr Rd -- ) \ Rd={Z+,-Z,Y+,-Y,X+,-X,X,Y,Z}
+
+9200  Rd: sts_
+: sts, sts_ i,  ;        ( k16 Rd -- ) \ FFFF 2 sts, adr(FFFF)<--R2
+
+: lsl,    dup add, ;           \ Rd --
+: rol,    dup adc, ;           \ Rd --
+: tst,    dup and, ;           \ Rd --
+: clr,    dup eor, ;           \ Rd --
+: ser,    $ff ldi, ;           \ Rd --
+
+900f  Rd: pop,            \ Rd --
+920f  Rd: push,           \ Rd --
+9400  Rd: com,            \ Rd --
+9401  Rd: neg,            \ Rd --
+9402  Rd: swap,           \ Rd --
+9403  Rd: inc,            \ Rd --
+9405  Rd: asr,            \ Rd --
+9406  Rd: lsr,            \ Rd --
+9407  Rd: ror,            \ Rd --
+9408  Rd: bset,           \ Rd --
+9488  Rd: bclr,           \ Rd --
+940a  Rd: dec,            \ Rd --
+
+0000 op: nop,                  \ --
+9508 op: ret,                  \ --
+9518 op: reti,                 \ --
+9588 op: sleep,                \ --
+9598 op: break,                \ --
+95a8 op: wdr,                  \ --
+9409 op: ijmp,                 \ --
+9419 op: eijmp,                \ --
+9509 op: icall,                \ --
+9519 op: eicall,               \ --
+
+9488 op: clc,                  \ --
+94d8 op: clh,                  \ --
+94d8 op: cli,                  \ --
+94a8 op: cln,                  \ --
+94c8 op: cls,                  \ --
+94e8 op: clt,                  \ --
+94b8 op: clv,                  \ --
+9498 op: clz,                  \ --
+9408 op: sec,                  \ --
+9458 op: seh,                  \ --
+9478 op: sei,                  \ --
+9428 op: sen,                  \ --
+9448 op: ses,                  \ --
+9468 op: set,                  \ --
+9438 op: sev,                  \ --
+9418 op: sez,                  \ --
+
+9600  Rw,k: adiw,   ( Rw k6 -- ) \ 3 3F adiw, ZLH=ZLH+#3F
+9700  Rw,k: sbiw,
+9800  P,b: cbi,   \ P b --
+9900  P,b: sbic,  \ P b --
+9a00  P,b: sbi,   \ P b --
+9b00  P,b: sbis,  \ P b --
+
+b000  Rd,P: inn,   \ Rd P --
+b800  Rd,P: out,   \ Rr P --
+
+f800  Rd,Rr: bld,  \ Rd b --
+fa00  Rd,Rr: bst,  \ Rd b --
+fc00  Rd,Rr: sbrc, \ Rd b --
+fe00  Rd,Rr: sbrs, \ Rd b --
+
+940c  k22: jmp,   ( k16 k6 -- ) \ k6=0 for 16b addr
+940e  k22: call,  ( k16 k6 -- ) \ k6=0 for 16b addr
+: rjmp,   0fff and c000  or i, ; ( k12 -- )
+: rcall,  0fff and d000  or i, ; ( k12 -- )
+
+
+f008 constant cs,   \ if/until carry set
+f008 constant lo,   \ if/until lower
+f009 constant eq,   \ if/until zero
+f00a constant mi,   \ if/until negative
+f00b constant vs,   \ if/until no overflow
+f00c constant lt,   \ if/until less than
+f00d constant hs,   \ if/until half carry set
+f00e constant ts,   \ if/until T flag set
+f00f constant ie,   \ if/until interrupt enabled
+
+: not, 0400 xor ;   \ Invert the condition code
+
+: if, ( cc -- addr) i, [ ' if 2+ pfl - zfl d2/ jmp, ] ;
+: else, postpone else ;
+: then, postpone then ;
+: begin, postpone begin ;
+: until, ( addr cc -- ) i, postpone again ;
+: again, ( addr -- ) postpone again ;
+
+$00 constant Z  $01 constant Z+  $02 constant -Z
+$08 constant Y  $09 constant Y+  $0a constant -Y
+$0c constant X  $0d constant X+  $0e constant -X
+
+00  constant R0  01  constant R1  02  constant R2  03  constant R3
+04  constant R4  05  constant R5  06  constant R6  07  constant R7
+08  constant R8  09  constant R9  0a  constant R10 0b  constant R11
+0c  constant R12 0d  constant R13 0e  constant R14 0f  constant R15
+10  constant R16 11  constant R17 12  constant R18 13  constant R19
+14  constant R20 15  constant R21 16  constant R22 17  constant R23
+18  constant R24 19  constant R25 1a  constant R26 1b  constant R27
+1c  constant R28 1d  constant R29 1e  constant R30 1f  constant R31
+1a  constant XL  1b  constant XH
+1c  constant YL  1d  constant YH
+1e  constant ZL  1f  constant ZH
+01  constant XH:XL  \ XH:XL 3F adiw, sbiw,
+02  constant YH:YL
+03  constant ZH:ZL

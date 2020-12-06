@@ -1,0 +1,61 @@
+\ *********************************************************************
+\    Filename:      sieve2.ff                                         *
+\    Date:          22.02.2014                                        *
+\    MCU:           PIC 18 24 30 33  Atmega                           *
+\    Copyright:     Mikael Nordman                                    *
+\    Author:        Mikael Nordman                                    *
+\                                                                     *
+\    modified:      30.11.2020                                        *
+\    by:            bitflipser                                        *
+\ *********************************************************************
+\ FlashForth is licensed according to the GNU General Public License  *
+\ *********************************************************************
+\ Sieve of Eratosthenes                                                
+\ search and count pimes up to a given number (8.192 in the example)   
+\ search is done by marking all multiples of a found prime as non-prime
+\ the example requires 1.024/1.032 byte of RAM                         
+-sieve2
+marker -sieve2
+decimal ram
+
+8192 constant size2                                
+variable flags2 size2 8 / 2- allot                 
+
+: fill2 ( c n -- )  \ fill n bytes of flags2 with c
+    flags2 !p>r for dup pc! p+ next r>p drop      ;
+
+\ variant 2 only
+( 2 ) variable bmTab 6 allot   \ mask look-up table
+: bit-addr   ( bit -- bit mask eff-addr )
+                           \ 26.880 calls
+\ 2 variants                             
+( 1  1 over 7 and lshift   )     \ 374 ms
+( 2 ) dup 7 and bmTab + c@       \ 330 ms
+      over 2/ 2/ 2/ flags2 +            ;
+
+: sieve2
+  $0201 bmTab ! \ initialize look-up table
+  $0804 [ bmTab 2+ ]  literal !           
+  $2010 [ bmTab 4 + ] literal !           
+  $8040 [ bmTab 6 + ] literal !           
+  $ffff [ size2 8 / ] literal fill2       
+  0 2 !p>r      \ skip 0 & 1, start with 2
+  size2 1- for                            
+     @p bit-addr mtst                     
+     if          \ found -> mark multiples
+                 \ step: bit (still there)
+        dup 2*   \ start: bit * 2         
+        begin           
+          dup size2 u<  
+        while           
+          bit-addr mclr 
+          over +        
+        repeat          
+        2drop 1+        
+     else drop          
+     then               
+     p+                 
+  next                  
+  r>p . ." primes " cr ;
+: bench2 ticks sieve2 ticks swap - u. ." milliseconds" cr ;
+bench2

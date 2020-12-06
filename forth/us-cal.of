@@ -1,0 +1,21 @@
+\ *********************************************************************
+\    Filename:      us-cal.of                                         *
+\    Date:          05.12.2020                                        *
+\    MCU:           ATmega328P                                        *
+\    Copyright:     bitflipser                                        *
+\    Author:        bitflipser                                        *
+\ *********************************************************************
+\ OptiForth is MIT licensed                                           *
+\ *********************************************************************
+\ helper word for calibrating the us loop 
+\ checks the accuracy of kernel word 'us' 
+\ overhead is caused by interrupt routines
+-us-cal                                   
+marker -us-cal                            
+: us-cal ( u -- ) \ give target delay in us
+  ticks>n                                  
+  begin #999 us 2+ 2- 1+ 2- 0until drop    
+        \  1 off for test loop             
+  ticks=                                  ;
+( done )
+decimal 10.000 us-cal

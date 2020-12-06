@@ -1,0 +1,22 @@
+\ *********************************************************************
+\    Filename:      bgMusic.of                                        *
+\    Date:          05.12.2020                                        *
+\    MCU:           ATmega328P                                        *
+\    Copyright:     bitflipser                                        *
+\    Author:        bitflipser                                        *
+\ *********************************************************************
+\ OptiForth is MIT licensed                                           *
+\ *********************************************************************
+\ multitasking test - needs 'task.of' and 'TC2_music.of'
+\ plays four (german) children songs in an endless loop 
+\ in a background task                                  
+-bgMusic                                                
+marker -bgMusic                                         
+: music
+    begin
+      playFG /4 p playamE /4 p playHk /4 p playHG /4 p
+    again ;                                             
+0 #12 #20 0 task: bgMusic                               
+' music bgMusic t_init bgMusic t_run
+tasks
+( done )

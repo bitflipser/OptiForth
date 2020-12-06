@@ -1,0 +1,57 @@
+\ *********************************************************************
+\    Filename:      task.of                                           *
+\    Date:          05.12.2020                                        *
+\    MCU:           ATmega328P                                        *
+\    Copyright:     bitflipser                                        *
+\    Author:        bitflipser                                        *
+\ *********************************************************************
+\ OptiForth is MIT licensed                                           *
+\ *********************************************************************
+\ task handling words for 'OptiForth 5.2'
+\                                           
+-task                                                   
+marker -task                                            
+hex ram
+\ : up@ #2 @ ; inlined -> hp                            
+: up!     [ $011c i, ] drop ;                           
+: ul@ dup [ $01f1 i, $973c i, $9181 i, $9191 i, ] ;     
+: ul!     [ $01f1 i, $973c i, $8391 i, $8380 i, ] drop ;
+: his     [ $1982 i, $0993 i, ] swap @ + ;              
+: op@ operator @ ;                                      
+: op! op@ up! ;                                         
+: task:
+    flash create hp s0 - dup ram here + flash ,
+    4 for over , + next
+    cell+ ram allot ;                                   
+: t_init
+    @+ up! ul@ 
+    if 2drop
+    else dup 2- task ! @+ swap @+ rot + hp + r0 !
+      @ r0 @ + s0 ! r0 @ x>r 1- s0 @ over !
+      5 - rsave ! s0 @ 2+ tiu ! 0 ul! 0 task 4 + !
+      decimal
+    then op! ;                                          
+: t_run
+    @ up! ul@ 0=
+    if hp op! ul@ over ul! swap up! ul! then
+    op! ;                                               
+: t_end
+    @ up! ul@
+    if hp op! begin dup ul@ <> while ul@ up! repeat
+      hp swap up! ul@ 0 ul! swap up! ul!
+    then op! ;                                          
+: t_single
+    ul@ op@ <>  
+    if ul@ op@ ul! up! begin ul@ op@ <> while ul@ 0 ul! up! repeat
+      0 ul! op!
+    then ;                                              
+: tasks
+    hp op!
+    begin 
+      hp task @ 6 - op! c>n .id space up!
+    ul@ op@ - while
+      ul@ up!
+    repeat
+    up! ;                                               
+decimal
+( done )

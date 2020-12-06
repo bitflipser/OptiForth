@@ -1,0 +1,23 @@
+\ *********************************************************************
+\    Filename:      full_run.of                                       *
+\    Date:          05.12.2020                                        *
+\    MCU:           ATmega328P                                        *
+\    Copyright:     bitflipser                                        *
+\    Author:        bitflipser                                        *
+\ *********************************************************************
+\ OptiForth is MIT licensed                                           *
+\ *********************************************************************
+\ test run for task switching                 
+\ when 'bgBlink.of', 'bgStar.of', 'bgMusic.of,
+\ and 'adc.of' are compiled,                  
+\ four tasks are started simultanously        
+\ enter '#1100' as Vref                       
+\ (reference voltage for reading the on-chip temperature sensor)
+\                                             
+decimal
+' bgb bgBlink t_init bgBlink t_run
+' beep bgBeep t_init bgBeep t_run
+' music bgMusic t_init bgMusic t_run
+tasks
+idle
+T main load

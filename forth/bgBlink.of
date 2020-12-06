@@ -1,0 +1,19 @@
+\ *********************************************************************
+\    Filename:      bgBlink.of                                        *
+\    Date:          05.12.2020                                        *
+\    MCU:           ATmega328P                                        *
+\    Copyright:     bitflipser                                        *
+\    Author:        bitflipser                                        *
+\ *********************************************************************
+\ OptiForth is MIT licensed                                           *
+\ *********************************************************************
+\ set up a background task that blinks the
+\ ARDUINO LED with 5 Hz                   
+-bgBlink                                  
+marker -bgBlink                           
+$23 constant PINB $20 constant bit5       
+: bgb begin bit5 PINB mset #100 ms again ;
+0 10 10 0 task: bgBlink                   
+' bgb bgBlink t_init
+bgBlink t_run tasks
+( done )

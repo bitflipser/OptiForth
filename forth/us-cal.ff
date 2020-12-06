@@ -1,0 +1,27 @@
+\ *********************************************************************
+\    Filename:      us-cal.ff                                         *
+\    Date:          05.12.2020                                        *
+\    MCU:           ATmega328P                                        *
+\    Copyright:     bitflipser                                        *
+\    Author:        bitflipser                                        *
+\ *********************************************************************
+\ OptiForth is MIT licensed                                           *
+\ *********************************************************************
+\ file version for FlashForth 5.0         
+\ helper word for calibrating the us loop 
+\ checks the accuracy of user word 'us'   
+\ overhead is caused by interrupt routines
+-us-cal                                   
+marker -us-cal                            
+: us7 ;              \ waste 7 cpu ticks   
+: us ( u-1 -- )      \ delay u microseconds
+  dup 0= if
+         else begin us7 1+ 2- dup 0= until 
+         then drop                        ;
+: us-cal ( u -- ) \ give target delay in us
+  ticks swap
+  begin #998 us 1+ 2- dup 0= until drop    
+         \ 1 off for test loop             
+  ticks swap -                            ;
+( done )
+decimal 10.000 us-cal

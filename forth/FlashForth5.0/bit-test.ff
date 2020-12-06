@@ -1,0 +1,62 @@
+\ *********************************************************************
+\                                                                     *
+\    Filename:      bit-test.txt                                      *
+\    Date:          06.01.2015                                        *
+\    FF Version:    5.0                                               *
+\    MCU:           Atmega                                            *
+\    Copyright:     Mikael Nordman                                    *
+\    Author:        Mikael Nordman                                    *
+\                                                                     *
+\    modified:      30.11.2020                                        *
+\    by:            bitflipser                                        *
+\ *********************************************************************
+\    FlashForth is licensed acording to the GNU General Public License*
+\ *********************************************************************
+\ Test words for manipulating bits in ram and in IO registers
+\ Needs bit.txt
+\ modified to match ATmega328P/Arduino UNO R3 by bitflipser
+-bittest
+marker -bittest
+
+\ BIT addressable IO register
+\ $20 - $3f
+$25 constant portb
+
+\ IN OUT addressable IO register
+$4b constant gpior2
+
+\ LDS STS addressable IO register
+$b2 constant tcnt2
+
+portb 2 bit0: portb2off
+portb 2 bit1: portb2on
+portb 2 bit?: portb2?
+
+gpior2 0 bit0: gpio0off
+gpior2 0 bit1: gpio0on
+gpior2 0 bit?: gpio0?
+
+tcnt2 7 bit0: tcnt27off
+tcnt2 7 bit1: tcnt27on
+tcnt2 7 bit?: tcnt27?
+ 
+-1 portb c!
+portb2off portb c@ . portb2? .
+portb2on portb c@ . portb2? .
+0 portb c!
+portb2on portb c@ . portb2? . 
+portb2off portb c@ . portb2? .
+
+-1 gpior2 c!
+gpio0off gpior2 c@ . gpio0? .
+gpio0on gpior2 c@ . gpio0? .
+0 gpior2 c!
+gpio0off gpior2 c@ . gpio0? .
+gpio0on gpior2 c@ . gpio0? .
+0 gpior2 c!
+-1 tcnt2 c!
+tcnt27off tcnt2 c@ . tcnt27? .
+tcnt27on tcnt2 c@ . tcnt27? .
+0 tcnt2 c!
+tcnt27on tcnt2 c@ . tcnt27? .
+tcnt27off tcnt2 c@ . tcnt27? .

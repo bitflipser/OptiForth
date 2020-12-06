@@ -1,0 +1,100 @@
+\ *********************************************************************
+\    Filename:      scaleSpeed.of                                     *
+\    Date:          05.12.2020                                        *
+\    MCU:           ATmega328P                                        *
+\    Copyright:     bitflipser                                        *
+\    Author:        bitflipser                                        *
+\ *********************************************************************
+\ OptiForth is MIT licensed                                           *
+\ *********************************************************************
+\ testing the scale operator '1024*/' and the
+\ compiled code for                          
+\ 'dup lit > if' 'dup lit u< if' 'lit 1024*/'
+\ 'dup lit < if' 'dup lit u> if'             
+\ computes                                   
+\ -the circle area for radius r from 1 to 144
+\  (fixed point math: r^2 * pi)              
+\ -the run time                              
+\                                            
+-scaleSpeed                                  
+marker -scaleSpeed                           
+decimal
+: csu< ( r -- )                                     
+    ticks>n                                         
+    #1.000 for dup                                  
+    begin                                           
+      dup                                           
+            dup   1 =  if               31415 + drop
+      else  dup   5 u< if 10 * sqr 32170 1024*/ drop
+      else  dup  15 u< if 10 * sqr  3217 1024*/ drop
+      else  dup  46 u< if      sqr 32170 1024*/ drop
+      else  dup 145 u< if      sqr  3217 1024*/ drop
+      else drop                                     
+      then then then then then                      
+    1- dup 0= until drop                            
+    next drop                                       
+    ticks=                                           ;
+: csu> ( r -- )                                       
+    ticks>n                                           
+    #1.000 for dup                                    
+    begin                                             
+      dup                                             
+              dup 144 u> if                       drop
+        else  dup  45 u> if      sqr  3217 1024*/ drop
+        else  dup  14 u> if      sqr 32170 1024*/ drop
+        else  dup   4 u> if 10 * sqr  3217 1024*/ drop
+        else  dup   1 u> if 10 * sqr 32170 1024*/ drop
+        else      ( r = 1 )               31415 + drop
+      then then then then then                        
+    1- dup 0= until drop                              
+    next drop                                         
+    ticks=                                           ;
+: csu<_ ( r -- )
+    ticks>n
+    #1.000 for dup
+    begin
+      dup
+            dup   1 =  if               31415  +    drop
+      else  dup   5 u< if 10 * dup * 32170 1024 u*/ drop
+      else  dup  15 u< if 10 * dup *  3217 1024 u*/ drop
+      else  dup  46 u< if      dup * 32170 1024 u*/ drop
+      else  dup 145 u< if      dup *  3217 1024 u*/ drop
+      else drop
+      then then then then then
+    1- dup 0= until drop
+    next drop 
+    ticks=                                           ;
+: cs< ( r -- )
+    ticks>n
+    #1.000 for dup
+    begin
+      dup
+            dup   1 = if               31415 + drop
+      else  dup   5 < if 10 * sqr 32170 1024*/ drop
+      else  dup  15 < if 10 * sqr  3217 1024*/ drop
+      else  dup  46 < if      sqr 32170 1024*/ drop
+      else  dup 145 < if      sqr  3217 1024*/ drop
+      else drop
+      then then then then then
+    1- dup 0= until drop
+    next drop
+    ticks=                                           ;
+: cs> ( r -- )
+    ticks>n
+    #1.000 for dup
+      begin
+        dup
+              dup 144 > if                       drop
+        else  dup  45 > if      sqr  3217 1024*/ drop
+        else  dup  14 > if      sqr 32170 1024*/ drop
+        else  dup   4 > if 10 * sqr  3217 1024*/ drop
+        else  dup   1 > if 10 * sqr 32170 1024*/ drop
+        else      ( r = 1 )              31415 + drop
+        then then then then then
+      1- dup 0= until drop
+    next drop
+    ticks=                                           ;
+: wsx 144 csu<_ 144 csu< 144 csu> 144 cs< 144 cs>    ;
+( done )
+\    [ms]  noopt_u<  u<  u>    <   >
+wsx
