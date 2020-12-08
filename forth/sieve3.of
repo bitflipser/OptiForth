@@ -29,9 +29,9 @@ variable bmTab 6 allot \ look-up tabel for bit mask
     dup 7 and bmTab + mc@       \ 54 ms
     over 2/ 2/ 2/ flags3 +            ;
 
- : dup>a [ $015c i, ] ; inlined          \      
- : a>+   [ $0d8a i, $1d9b i, ] ; inlined \      
- : @p+   [ $0f84 i, $1f95 i, ] ; inlined \ 49 ms
+\ : dup>a [ $015c i, ] ; inlined          \      
+\ : a>+   [ $0d8a i, $1d9b i, ] ; inlined \      
+\ : @p+   [ $0f84 i, $1f95 i, ] ; inlined \ 49 ms
 : sieve3
   $0201   bmTab !    \ initialize look-up table
   $0804 [ bmTab 2+  ] literal !                
@@ -43,11 +43,11 @@ variable bmTab 6 allot \ look-up tabel for bit mask
   size3 for
      @p bit-addr mtst
      if         \ found prime -> mark multiples
-        2* 1+ dup>a       \ step:  bit * 2 + 1
-        @p+               \ start: bit + step 
+        2* 1+ dup >a       \ step:  bit * 2 + 1
+        @p +               \ start: bit + step 
         begin dup size3 u< 
         while bit-addr mclr
-              a>+
+              a> +
         repeat             
         drop 1+           
      else drop             
