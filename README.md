@@ -1,5 +1,5 @@
 # OptiForth
-Forth system for ATmega328 / Arduino Uno R3
+Fast Forth system for ATmega328 / Arduino Uno R3
 
 It is based on Mikael Nordman's great FlashForth 5.0
 (https://flashforth.com)
@@ -31,10 +31,10 @@ but be aware NOT to send input files exceeding the input buffer size.
 
 Once burned OptiForth can be rewritten over USB using avrdude or similar.
 The avrdude parameters look like that (all together in one line!):
- -C"<avrdude-path>/avrdude.conf"
+ -C"[avrdude-path]/avrdude.conf"
  -v -v -patmega328p -carduino -PCOMxx -b250000 -D 
- -Ueeprom:w:"<OptiForth-path>\OptiForth52.eep":i 
- -Uflash:w:"<OptiForth-path>\OptiForth52.hex":i 
+ -Ueeprom:w:"[OptiForth-path]\OptiForth52.eep":i 
+ -Uflash:w:"[OptiForth-path]\OptiForth52.hex":i 
 (all together in one line!)
 Be aware that:
 - the bootloader runs with 250.000 baud
@@ -55,7 +55,7 @@ For those who are familiar with Mikael Nordman's original FlashForth 5.0:
   t_init  t_run  t_end  t_single
 
 - when writing to FLASH interrupts are NOT disabled, so the system ticks
-  timer keeps on running correctly, this is working because the kernel
-  interrup-routines reside in NRWW-area of FLASH memory
-  if you set up your own interrupt routines, you have to switch off
-  interrups before writing to FLASH
+  timer keeps on running correctly. This is working because the kernel
+  interrup-routines reside in NRWW-area of FLASH memory.
+  If you set up your own interrupt routines, you have to switch off
+  interrups before writing to FLASH.
