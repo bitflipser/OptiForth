@@ -1,0 +1,302 @@
+\ *********************************************************************
+\    Filename:      see_fat.of                                        *
+\    Date:          05.12.2020                                        *
+\    MCU:           ATmega328P                                        *
+\    Copyright:     bitflipser                                        *
+\    Author:        bitflipser                                        *
+\ *********************************************************************
+\ OptiForth is MIT licensed                                           *
+\ *********************************************************************
+\ OptiForth disassembler
+\ intended to analize   
+\ words in user dict    
+-see                    
+ticks                   
+marker -see             
+hex ram                 
+: *@ dup @ ;            
+: u.4 4 u.r ;           
+: *@+ dup 2+ @ u.4 ;    
+: 5sp 5 spaces ;        
+: @braddr               
+  *@ fff and dup 800 and
+         if f800 or then
+  2* over + 2+ 8000 or ;
+: @xtaddr dup 2+ @ xa> ;
+: .rjmp @braddr dup c>n                             
+            dup 7 = if drop u.4 2+                  
+                    else .id nip 0= then ; \ 2drop 0
+: .br                                               
+    *@ u2/ u2/ u2/ 7f and dup 40 and if ff80 or then
+    2* over + 2+ u.4 2+ cr ;                        
+: .reg                              
+        dup 0a = if drop ." a.l "   
+   else dup 0b = if drop ." a.h "   
+   else dup 10 = if drop ." temp.l "
+   else dup 11 = if drop ." temp.h "
+   else dup 14 = if drop ." p.l "   
+   else dup 15 = if drop ." p.h "   
+   else dup 16 = if drop ." flags1 "
+   else dup 17 = if drop ." flags2 "
+   else dup 18 = if drop ." tos.l " 
+   else dup 19 = if drop ." tos.h " 
+   else ." r" decimal 2 u.r hex     
+   then then then then then         
+   then then then then then 2+ ;               
+: .ireg    *@ u2/ u2/ u2/ u2/ f and 10 + .reg ;
+: .dreg    *@ u2/ u2/ u2/ u2/ 1f and .reg     ;
+: .rreg 2- *@ dup f and swap u2/ u2/ u2/ u2/ u2/ 10 and or .reg ;
+: .ioadr  *@ dup f and swap >< 2* 2* 2* 30 and or 2 u.r ;        
+' * #32 + constant xsquote                          
+: .lit_   dup f and swap u2/ u2/ u2/ u2/ f0 and or ;
+: .lit8  2- *@ .lit_ 2 u.r 2+                      ;
+: .lit16    *@ .lit_ over 2+ @ .lit_ >< or u.4 4 + ;
+: .1cr 5sp *@ u.4 2+ cr ;
+: .1w     cr 5sp *@+ 2+ ;
+: .2w    .1w *@+ 4 + cr ;
+: .4w    .1w *@+ 2+ .2w ;
+: .6w    .1w *@+ 2+ .4w ;
+f001 constant eq f401 constant ne
+f000 constant cs f400 constant cc
+f003 constant vs f403 constant vc
+f002 constant mi f402 constant pl
+: ?br   *@ fc07 and ;            
+: ?lspp *@ fe0f and ;            
+: ?rcall  *@ f000 and d000 - ;   
+: ?eeprom *@ e002 - over 2+ @ bd0a - or ;   
+: ?ram    *@ e004 - over 2+ @ bd0a - or ;   
+: ?sqr    *@ 9f88 - over 2+ @ 01c0 - or ;   
+: ?inout *@ f800 and ; : ?opdr *@ fc00 and ;
+: ?lit16 *@ f0f0 and ; : ?lit8 *@ f000 and ;
+: ?jmp   *@ fe0e and 940c - ;               
+: (see)
+dup u.4                                                  
+*@ u.4                                                   
+*@ 8108 = if *@+ ." 2dup"                2+ .4w exit then
+*@ 9109 = if *@+ 4 +                           \ pop.temp
+            *@ 0f80 = if ." +"           2- .2w exit then
+            *@ 2b80 = if ." or"          2- .2w exit then
+            *@ 2780 = if ." xor"         2- .2w exit then
+            *@ 2380 = if ." and"         2- .2w exit then
+            *@ 939a = if ." tuck"        2- .4w exit then
+            *@ 9595 = if ." d2/"         2- .6w exit then
+            *@ 0f00 = if ." d2*"         2- .6w exit then
+            *@ 2b89 = if ." d0="         2- .6w exit then
+            *@ 9500 = if ." dinvert"     2- .6w exit then
+            *@ 1b80 = if 4 +                             
+                      *@ 9701 = if ." ="                 
+                                  6 - .2w 5sp *@ u.4 .2w exit
+                        else ." swap- / <>" 6 - .2w exit then
+                      4 - then                               
+            *@ 1780 = if 4 +                                 
+                      *@ 0b88 = if ." u>"   6 - .4w exit then
+                      *@ f008 = if ." umin" 6 - .4w exit then
+                      4 - then                               
+            *@ 1708 = if 4 +                                 
+                      *@ 0b88 = if ." u<"   6 - .4w exit then
+                      *@ f008 = if ." umax" 6 - .4w exit then
+                      4 - then                               
+            *@ 01fc = if 4 +                                 
+                     *@ 2380 = if ." mtst"  6 - .4w exit then
+                     *@ 2b80 = if ." mset"  6 - .6w exit then
+                     *@ 9500 = if ." mclr"  6 - .1w .6w exit then
+                     *@ 2308 = if ." mtst0" 6 - .1w .4w exit then
+                     *@ 01c0 = if ." *"     6 - .1w .6w exit then
+                     4 - then                                    
+            *@ 1b08 = if ." -"              2- .2w .1cr exit then
+            ." pop.next >temp"                            cr exit
+          then                                                   
+*@ 911f = if *@+ ." r>limit"                  4 + cr exit then
+*@ 915f = if 2+ *@ 914f = if 2-                               
+                              *@+ ." r>p"          4 + cr exit
+                          else 2-                         then
+          then                                                
+*@ 9189 = if *@+ ." drop"                     4 + cr exit then
+*@ 91bf = if *@+ ." r>index"                  4 + cr exit then
+*@ 930f = if *@+ ." limit>r"                  4 + cr exit then
+*@ 931a = if *@+ ." push.temp >next"          4 + cr exit then
+*@ 934f = if 2+ *@ 935f = if 2-                               
+             *@+ 4 + *@ f0f0 and e040 = if                    
+                                  .lit16 ." !p>r" 6 - .2w exit
+                            else ." !p>r" 2- .1w .2w exit then
+                          else 2-                         then
+          then                                                
+*@ 938f = if 2+ *@ 939f = if 2- *@+ ." >r"    2+ .2w exit     
+                          else 2-                         then
+          then                                                
+*@ 939a = if *@+ 4 +                          \ push.tos / dup
+          *@ b78d = if ." rp@"                2- .2w exit then
+          *@ b58a = if ." dp"                 2- .4w exit then
+          *@ 818a = if ." over"               2- .2w exit then
+          *@ 919f = if ." r>"                 2- .2w exit then
+          *@ 01f1 = if ." tib"                2- .4w exit then
+          *@ 2788 = if ." false"              2- .2w exit then
+          *@ 0f99 = if ." s>d"            2- .1w .2w exit then
+          *@ 01c2 = if ." state"          2- .1w .2w exit then
+          *@ 01ca = if ." @p"                cr .1cr exit then
+          *@ 01c5 = if ." a>"                cr .1cr exit then
+          *@ 01c7 = if ." ticks"             cr .1cr exit then
+          *@ 9180 = if 2+ *@ 6 +                              
+                      latest = if ." ihere"  4 - .4w exit then
+                    2 - then                                  
+          *@ b7ed = if  4 +                                   
+                    *@ 8182 = if ." i / r@"  6 - .4w exit then
+                    *@ 8186 = if ." j"       6 - .4w exit then
+                    4 - then                                  
+         *@ e280 = if 2+ *@ 2799 = if ." bl" 4 - .2w exit then
+                   2- then                                    
+         *@ 01c1 = if 2+                                      
+                   *@ ff30 and 9700 =                         
+                     if *@ dup 000f and swap 00c0 and 2/ 2/ or
+                          ." user -"   2 u.r 4 - .2w exit then
+                     ." hp"        cr 2- .1cr exit            
+                   then                                       
+         *@ f0f0 and e080 = if ." lit " .lit16 6 - .2w exit then
+          ." dup"                                      cr exit
+          then                                                
+*@ 93af = if *@+ ." index>r" 4 + cr exit then                 
+*@ 9409 = if 5sp ." ijmp"    0=  cr exit then \ 'drop 0'->'0='
+*@ 940e = if *@+ @xtaddr dup c>n                              
+                     7 = if 4 - c>n                           
+                     dup 7 = if drop @xtaddr u.4 4 + cr exit  
+                           else ." temp " .id 4 + cr exit then
+                         else c>n dup .id                     
+                           xsquote = if space 4 + dup c@+ tuck
+                                      type 2+ fe and + cr exit
+                                     else 4 + cr exit then    
+                         then                                 
+          then                                                
+*@ 9478 = if 5sp ." ei"        2+  cr exit then               
+*@ 94f8 = if 5sp ." di"        2+  cr exit then               
+*@ 9508 = if 5sp ." exit"      0=  cr exit then \ 'drop 0'->'0='
+*@ 9510 = if 5sp ." com temp.h" 2+ cr exit then
+*@ 9580 = if 5sp ." com tos.l"  2+ cr exit then
+*@ 9590 = if 5sp ." com tos.h"  2+ cr exit then
+*@ 9595 = if *@+ ." 2/"        4 + cr exit then
+*@ 9596 = if *@+ ." u2/"       4 + cr exit then
+*@ 95a8 = if 5sp ." cwd"       2+  cr exit then
+*@ 9601 = if 5sp ." 1+"        2+  cr exit then
+*@ 9602 = if 5sp ." 2+"        2+  cr exit then
+*@ 9604 = if 5sp ." >body"     2+  cr exit then
+*@ 9611 = if 5sp ." loop " dup 8 + @braddr     
+                         u.4 drop .4w exit then
+*@ 9622 = if 5sp ." nip"       2+  cr exit then
+*@ 9700 = if 5sp ." dup ?0="   2+  cr exit then
+*@ 9701 = if 5sp ." 1-"        2+  cr exit then
+*@ 9702 = if 5sp ." 2-"        2+  cr exit then
+*@ 9711 = if 5sp ." next " dup 4 + @braddr     
+                         u.4 drop .2w exit then
+*@ 98f2 = if 5sp ." fl+"       2+  cr exit then
+*@ 9af2 = if 5sp ." fl-"       2+  cr exit then
+*@ 015c = if 5sp ." >a"           .2w exit then
+*@ 0187 = if 5sp ." ticks>n"      .2w exit then
+*@ 018c = if 2+                                
+          *@ 01c7 = if 2- *@+ ." ticks=" 2+ .2w exit then
+          *@ 9189 = if 5sp ." swap"      2- .4w exit then
+          5sp ." top >temp"                  cr exit     
+          then                                           
+*@ 01ac = if 5sp ." !p"                     .2w exit then
+*@ 01c7 = if 5sp ." ticks"                2+ cr exit then
+*@ 01dc = if 6 +                                         
+    *@ 018c = if   5sp ." do "  6 - .2w 5sp 2- *@+ 2+ .2w exit
+              else 5sp ." for " dup @braddr u.4 drop 6 -      
+                               .2w 5sp  *@ u.4 2+ cr exit then
+          6 - then                                            
+*@ 01fc = if 5sp 4 + \ put behind 'pop.next >temp'
+          *@ 9191 = if ." m@"    4 - .2w exit then
+          *@ e090 = if ." mc@"   4 - .2w exit then
+          2- *@ 9f0e = if 4 +                     
+                     *@ 9f0f = if ." temp.l *" 6 - .4w exit then
+                     *@ 9f1e = if ." temp *"   6 - .6w exit then
+                     4 - then                                   
+          2 - then                                              
+*@ 01fe = if 5sp ." sp@" .2w 5sp *@ u.4 2+ cr exit then
+*@ 0d44 = if *@+ ." p+"                4 + cr exit then
+*@ 0f11 = if 5sp ." lsl temp.h"        2+  cr exit then
+*@ 0f48 = if *@+ ." p++"               2+ .2w exit then
+*@ 0f88 = if 2+                                        
+          *@ 01fe = if 2- *@+ ." pick" 2+ .4w exit then
+          *@ 1f99 = if *@ u.4 2+                       
+                 *@ 5890 = if ." xa>" cr .1cr exit then
+                    ." 2*"  cr                         
+                    exit then                          
+          5sp ." lsl tos.l" cr                         
+          exit then                                    
+*@ 0f99 = if 5sp ." lsl tos.h"         2+ cr exit then
+*@ 2399 = if 5sp ." tst tos.h"         2+ cr exit then
+*@ 2788 = if 5sp ." clr tos.l"         2+ cr exit then
+*@ 2799 = if 5sp ." clr tos.h"         2+ cr exit then
+*@ 2b98 = if 5sp ." ?0="               2+ cr exit then
+*@ 2f08 = if *@+ ." ><" cr 5sp 2+ *@+ 4 + cr exit then
+*@ 2f89 = if *@+ ." 8>>"              4 + cr exit then
+*@ 2f98 = if *@+ ." 8<<"              4 + cr exit then
+?opdr 1400 = if 5sp ." cp  " .dreg .rreg  cr exit then
+?opdr 0400 = if 5sp ." cpc " .dreg .rreg  cr exit then
+?opdr 1800 = if 5sp ." sub " .dreg .rreg  cr exit then
+?opdr 0800 = if 5sp ." sbc " .dreg .rreg  cr exit then
+?opdr 0c00 = if 5sp ." add " .dreg .rreg  cr exit then
+?opdr 1c00 = if 5sp ." adc " .dreg .rreg  cr exit then
+?opdr 2000 = if 5sp ." and " .dreg .rreg  cr exit then
+?opdr 2400 = if 5sp ." eor " .dreg .rreg  cr exit then
+?opdr 2800 = if 5sp ." or "  .dreg .rreg  cr exit then
+?opdr 2c00 = if 5sp ." mov " .dreg .rreg  cr exit then
+*@ 308a =                                             
+  if 2+ *@ f008 = if 2+ *@ 5d89 = if 2+ *@ 5d80 =     
+              if 6 - *@+ ." digit"   2+  .2w exit then
+  2- then         2- then         2- then             
+*@ 5f4e = if *@+ ." p2+"       4 + cr exit then
+*@ 6072 = if 5sp ." idle"      2+  cr exit then
+*@ 6870 = if 5sp ." ]"         2+  cr exit then
+*@ 7f7d = if 5sp ." busy"      2+  cr exit then
+*@ 7f8e = if 5sp ." cbr tos.l 0" 2+ cr exit then
+*@ b7fe = if *@+ ." endit"     2+ .2w exit then
+*@ bc5a = if 5sp ." flash"     2+  cr exit then
+*@ 786e = if 5sp ." cbr izeroeq|idup|icarryeq|doclear"
+                                       2+ cr exit then
+*@ fd77 = if 5sp ." sbrc fstate"       2+ cr exit then
+*@ fd87 = if 5sp ." sbrc tos.l 7"      2+ cr exit then
+?sqr    0= if *@+ ." sqr"    4 + cr exit then
+?ram    0= if *@+ ." ram"    4 + cr exit then
+?eeprom 0= if *@+ ." eeprom" 4 + cr exit then
+?br eq = if 5sp ." breq " .br exit then
+?br ne = if 5sp ." brne " .br exit then
+?br cc = if 5sp ." brcc " .br exit then
+?br cs = if 5sp ." brcs " .br exit then
+?br vs = if 5sp ." brvs " .br exit then
+?br vc = if 5sp ." brvc " .br exit then
+?br pl = if 5sp ." brpl " .br exit then
+?br mi = if 5sp ." brmi " .br exit then
+?lit16 5080 = if *@+ .lit16 ."  -"        cr exit then
+?lit16 6080 = if *@+ .lit16 ."  or"       cr exit then
+?lit16 7080 = if *@+ .lit16 ."  and"      cr exit then
+?lit8 3000 = if 5sp ." cpi "  .ireg .lit8 cr exit then
+?lit8 4000 = if 5sp ." sbci " .ireg .lit8 cr exit then
+?lit8 5000 = if 5sp ." subi " .ireg .lit8 cr exit then
+?lit8 6000 = if 5sp ." ori "  .ireg .lit8 cr exit then
+?lit8 7000 = if 5sp ." andi " .ireg .lit8 cr exit then
+?lit8 c000 = if 5sp ." rjmp "      .rjmp  cr exit then
+*@ f0f0 and e0a0 = if                                 
+    *@+ .lit16 ." for " @braddr u.4  cr .1cr exit then
+?lit8 e000 = if 5sp ." ldi "  .ireg .lit8 cr exit then
+?rcall 0= if 5sp @braddr dup c>n                            
+       7 = if 4 - c>n                                       
+           dup 7 = if drop ." rcall " @braddr u.4 2+ cr exit
+                   else ." temp " .id        2+ cr exit then
+           else c>n dup .id                                 
+                  xsquote = if space 2+ dup c@+ type cr exit
+                            else             2+ cr exit then
+           then then                                        
+?lspp 9009 = if 5sp ." ld " .dreg ." y+"  cr exit then
+?lspp 920a = if 5sp ." st -y " .dreg      cr exit then
+?lspp 900f = if 5sp ." pop "   .dreg      cr exit then
+?lspp 920f = if 5sp ." push "  .dreg      cr exit then
+?lspp 9000 = if *@+ ." lds " .dreg *@ u.4 2+ cr exit then
+?lspp 9200 = if *@+ ." sts " *@+ .dreg 2+ cr exit then
+
+?jmp   0= if *@+ ." jmp " @xtaddr c>n .id 0= else \ 'drop 0'->'0='
+?inout b800 = if 5sp ." out " .ioadr .dreg       else
+?inout b000 = if 5sp ." in  " .dreg 2- .ioadr 2+ else
+2+                            then then then cr ;
+: dis  hex cr cr begin (see) dup 0= until drop  ;
+: see ( "word" -- ) ' dis ;                      
+decimal ram ticks=
