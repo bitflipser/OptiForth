@@ -7,7 +7,7 @@
 \ *********************************************************************
 \ OptiForth is MIT licensed                                           *
 \ *********************************************************************
-\ table test according to the exsamples in 'OptiForth52.asm'
+\ table test according to the examples in 'OptiForth52.asm'
 -table
 marker -table
 : table create #10 cells allot 
