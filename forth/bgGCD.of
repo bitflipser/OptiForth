@@ -1,0 +1,34 @@
+\ *********************************************************************
+\    Filename:      bgGCD.of                                          *
+\    Date:          16.12.2020                                        *
+\    MCU:           ATmega328P                                        *
+\    Copyright:     bitflipser                                        *
+\    Author:        bitflipser                                        *
+\ *********************************************************************
+\ OptiForth is MIT licensed                                           *
+\ *********************************************************************
+\ testing the scale operator '1024*/' in an background task            
+\ -prints (benchmark) run time to tx0                                  
+\ -requires 'cwhi_t' from 'gcd.of'                                     
+-bgGCD                                     
+marker -bgGCD                              
+decimal                                    
+: bgbwhi                                   
+  begin #200 cwhi_t                        
+    #10 u/mod #10 u/mod #10 u/mod #10 u/mod
+    dup 0= if $20 + tx0                    
+             dup 0= if $20 + tx0           
+                 else $30 + tx0 then       
+           else  $30 + tx0 $30 + tx0 then  
+    $30 + tx0 $30 + tx0 $30 + tx0          
+\   $08 dup tx0 dup tx0 dup tx0 dup tx0 tx0
+  again ;                            
+ 0 20 20 0 task: bgGCD1             
+ ' bgbwhi bgGCD1 t_init bgGCD1 t_run
+ 0 20 20 0 task: bgGCD2             
+ ' bgbwhi bgGCD2 t_init bgGCD2 t_run
+ 0 20 20 0 task: bgGCD3             
+ ' bgbwhi bgGCD3 t_init bgGCD3 t_run
+ 0 20 20 0 task: bgGCD4             
+ ' bgbwhi bgGCD4 t_init bgGCD4 t_run
+ tasks
