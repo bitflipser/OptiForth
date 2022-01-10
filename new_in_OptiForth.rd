@@ -5,11 +5,14 @@ new core words
   branch on processor Z-flag, no stack action!
 
 0until ( -- )                   \  'dup 0= until'
-  loop back on processor Z-flag, no stack action! small loops only!
+  loop back on processor Z-flag set, no stack action! small loops only!
+
+1until ( -- )                   \  'dup 0 <> until'
+  loop back on processor Z-flag cleared, no stack action! small loops only!
 
 mtst0 ( mask adr -- )
   check adr with mask, leaves no flag on stack, to be used with
-  '0if' and '0until'
+  '0if', '0until' and '1until'
 
 m@ ( adr -- n )
   (fast) direct fetch from RAM, do not use if 'adr' is a literal,
@@ -19,7 +22,7 @@ mc@ ( adr -- c )
   (fast) direct fetch from RAM, do not use if 'adr' is a literal,
   constant or variable
 
-swap- ( n1 n2 -- n2-n1 )
+swap- ( n1 n2 -- n2-n1 )        \ 'swap -'
   small and fast
 
 1024*/ ( u1 u2 -- u3 )
