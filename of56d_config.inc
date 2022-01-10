@@ -1,7 +1,7 @@
 ; *********************************************************************
 ;                                                                     *
-;    Filename:      of56d_config.inc                                   *
-;    Date:          09.09.2021                                        *
+;    Filename:      of56d_config.inc                                  *
+;    Date:          10.01.2022                                        *
 ;    MCU:           ATmega328P                                        *
 ;    Copyright:     bitflipser                                        *
 ;    Author:        bitflipser                                        *
@@ -39,22 +39,19 @@
 ; (use 'Setup - Terminal... - New Line - Receive: CR' with TeraTerm)
 .equ CR_with_LF = 0
 
-; set to 1 to allow 'Ctrl-O' to reset OptiForth from the operator UART
-.equ CTRL_O_WARM_RESET = 1
-
 ; debug flash and eeprom writes
 ; prints time [ms] for every FLASH block write, or '+' for every EEPROM byte write
 .equ DEBUG_FLASH = 0;1
 
 ; set to 1 for power save when CPU is idle
-.set IDLE_MODE = 0;1
+.set IDLE_MODE = 1
 
 ; enable the cpu load measurement (for MS_TIMER <> 1 only, sets IDLE_MODE = 1)
 ; ################ NO load measurement when MS_TIMER == 1 ####################
-.set CPU_LOAD = 1
+.set CPU_LOAD = 0;1
 			
 ; CPU load indicator led definitions (sets IDLE_MODE = 1)
-.equ CPU_LOAD_LED = 1
+.equ CPU_LOAD_LED = 0;1
 
 ; UART buffer sizes
 .equ RX0_BUF_SIZE = 0x100				; !!! DO NOT CHANGE !!!
@@ -71,24 +68,18 @@
 .equ CPU_LOAD_BIT = 5					; avr-p28: pin5  	arduinomega: pin7 	arduinouno: PB5
 .equ CPU_LOAD_LED_POLARITY = 1			; avr-p28:  0 (= low) on port turns on led 
 										; arduino:  1 (=high) on port turns on led 
-
 ; oscillator frequency in herz
 .equ FREQ_OSC = 16000000
 
 ;;; UART0 configuration
 ;;; Note: With Arduino Uno R3 and MEGA R3 the USB to serial bridge latency and queues 
 ;;; disturb the XON/XOFF flow control. 
-;;; The workaround is NOT to use flow control and INCREASE buffer size. Initial setup
-;;; is RX0_BUF_SIZE = 1024 (0x400) - the size of a SCREEN in early forth implementations.
-;;; You can set any multiple of 0x100 up to (RAM_SIZE - 0x200).
-;;; Send source files ONLY, that do not EXCEED that buffer size! Or use a terminal 
-;;; program capable of inserting waiting times between sending lines.
-;;; (You may also try the ff-shell.py from the original FlashForth 5.0-package)
+;;; The workaround is NOT to use flow control, increase buffer size to 256 (0x100) bytes
+;;; and use a Terminal program capable of inserting waiting times between sending lines.
+;;; e.g. TeraTerm
+;;; In most cases 20 ms/line a sufficient.
 .equ BAUDRATE0 = 115200             ; serial baudrate UART0
 .equ U0FC_TYPE = 0                  ; 0 = no handshaking, (1 = XON/XOFF, 2=CTS/RTS - not in use!!)
-;.equ U0RTS_PORT= PORTD
-;.equ U0RTS_DDR = DDRD
-;.equ U0RTS_BIT = 3
 
 ;;; USER AREA sizes for the OPERATOR task
 .equ RETURN_STACK_SIZE    = 64       ; 32 cells return stack
@@ -108,15 +99,15 @@
 ; define the UART used for the operator
 .equ OPERATOR_UART	= 0 			; 0 or 1 (requires reburning of bootloader)
 
-;;; UART1 configuration	(not on ATmega328/p)
-.equ BAUDRATE1 = 38400              ; Serial baudrate UART1
-.equ U1FC_TYPE = 1                  ; 1 = XON/XOFF, 2=CTS/RTS
-.equ U1RTS_PORT= PORTD
-.equ U1RTS_DDR = DDRD
-.equ U1RTS_BIT = 4
+;;; UART1 configuration			(NOT on ATmega328/P)
+;.equ BAUDRATE1 = 38400              ; Serial baudrate UART1
+;.equ U1FC_TYPE = 1                  ; 1 = XON/XOFF, 2=CTS/RTS
+;.equ U1RTS_PORT= PORTD
+;.equ U1RTS_DDR = DDRD
+;.equ U1RTS_BIT = 4
 
-.equ RX1_BUF_SIZE = 32  ; 8,16,32,64
-.equ RX1_OFF_FILL = 4   ; Fill level for XOFF
+;.equ RX1_BUF_SIZE = 32  ; 8,16,32,64
+;.equ RX1_OFF_FILL = 4   ; Fill level for XOFF
 
 ; select the timer to use for the system millisecond ticks (0, 1, 2)
 .equ MS_TIMER = 0					; 0, 1, 2 (requires reburning of bootloader)

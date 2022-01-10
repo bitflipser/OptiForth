@@ -1,8 +1,8 @@
 ;***********************************************************************************
 ;                                                                                  *
-;    Filename:      OptiForth56d.asm                                                *
-;    Date:          09.09.2021                                                     *
-;    File Version:  5.6d                                                            *
+;    Filename:      OptiForth56d.asm                                               *
+;    Date:          10.01.2022                                                     *
+;    File Version:  5.6d                                                           *
 ;    MCU:           Atmega328/P                                                    *
 ;    Copyright:     bitflipser                                                     *
 ;    Author:        bitflipser                                                     *
@@ -37,8 +37,8 @@
 ;                                                                                  *
 ; It is based on Mikael Nordman's FlashForth 5.0 (https://flashforth.com)          *
 ;                                                                                  *
-; OptiForth includes a bootloader, that is fully Optiboot-compatabil and therefor  *
-; cabable of loading Arduino sketches as well.                                     *
+; OptiForth includes a bootloader, that is fully Optiboot-compatible and therefore *
+; capable of loading Arduino sketches as well.                                     *
 ;                                                                                  * 
 ; Optimized and tested for the ATmega328P/Arduino UNO R3 ONLY !!                   *
 ;                                                                                  *
@@ -47,7 +47,7 @@
 ;***********************************************************************************
 
 ; define the OF version date string
-#define DATE       "09.09.2021"
+#define DATE       "10.01.2022"
 
 ; include the OptiForth configuration file
 .include "of56d_config.inc"
@@ -72,9 +72,9 @@
 	  .def t9		  = R18	; free for use
 .endif
 
-  .def X_intSafe	=  R4 	; 16 bit, interrupt only !
-;   .def X_intSafeL	=   R4	; interrupt only !
-;   .def X_intSafeH	=   R5	; interrupt only !
+  .def intSafe16	=  R4 	; 16 bit, interrupt only !
+;   .def intSafe16L	=   R4	; interrupt only !
+;   .def intSafe16H	=   R5	; interrupt only !
   .def INTvector	= R19	; interrupt only !
   .def SREG_intSafe = R19 	; interrupt only !
 
@@ -113,7 +113,7 @@
 					.equ regZ	= 0xe0
 
   .def FLAGS1 = R22     	; not in interrupt
-  .def FLAGS2 = R23     	; not in interrupt
+  .def FLAGS2 = R23     	; not in interrupt - used in COMPILE state only
   .equ FLAGS3 = GPIOR0
 
 
@@ -250,10 +250,7 @@
 .equ fDOTsign		= 4		; write '-' sign 
 .equ fWORDSall		= 3		; list all in WORDS
 .equ fDUMPxxx		= 3		; DUMP 3-digit numbers (for base < 16)
-.if IDLE_MODE == 0
-	;				= 2
-	.equ fSINGLE	= 1		; single task (operator) only
-.else
+.if IDLE_MODE == 1
 	.equ fTX0pending= 2		; waiting for UDRE0 (enable UDRIE0 in 'IDLE_LOAD')
 	.equ fIDLE		= 1		; 0 = busy, 1 = idle
 .endif
@@ -276,6 +273,7 @@
 ;.equ XON	= 0x11
 ;.equ XOFF	= 0x13
 
+.equ CTRL_O	= 0x0f
 .equ CR_	= 0x0d
 .equ LF_	= 0x0a
 .equ BS_	= 0x08
@@ -311,21 +309,24 @@
 	.equ OFLASH = 0x8000                  ; 32 kBytes available for OptiForth
 	.equ PFLASH = OFLASH
 	.equ RAMPZV  = 0
-	.set KERNEL_SIZE = 0x10ec
+	.set KERNEL_SIZE = 0x1100
 ;=================================================================================
 .endif
 
+	.ifdef RAMPZ
+		.set KERNEL_SIZE = KERNEL_SIZE +  ?????	; ###### set when porting to another AVR-controller ######
+	.endif
 	.if CR_with_LF == 1
 		.set KERNEL_SIZE = KERNEL_SIZE +  0x02
 	.endif
 	.if CPU_LOAD_LED == 1
-		.set KERNEL_SIZE = KERNEL_SIZE +  0x11
+		.set KERNEL_SIZE = KERNEL_SIZE +  0x13
 	.endif
 	.if CPU_LOAD == 1
 		.set KERNEL_SIZE = KERNEL_SIZE +  0x22
 	.endif
 	.if IDLE_MODE == 1
-		.set KERNEL_SIZE = KERNEL_SIZE +  0x15
+		.set KERNEL_SIZE = KERNEL_SIZE +  0x1f
 	.endif
 	.if DEBUG_FLASH == 1
 		.set KERNEL_SIZE = KERNEL_SIZE +  0x0d
@@ -333,11 +334,8 @@
 	.if optimizeNUM == 1
 		.set KERNEL_SIZE = KERNEL_SIZE +  0xd4
 	.endif
-	.if CTRL_O_WARM_RESET == 1
-		.set KERNEL_SIZE = KERNEL_SIZE +  0x03
-	.endif
 	.if optimizingCOMPILER == 1
-		.set KERNEL_SIZE = KERNEL_SIZE + 0x14e
+		.set KERNEL_SIZE = KERNEL_SIZE + 0x159
 	.endif
 
 .equ BOOT_SIZE   =0x100
@@ -428,9 +426,9 @@ litbuf0:    .byte 1				; used in COMPILE-state only
 LEAVEadr:	.byte 2				; used in COMPILE-state only
 .equ _LEAVEadr	=LEAVEadr -RAMvarBase
 
-;cse:    .byte 1 				; current data section 0=FLASH, 2=EEPROM, 4=RAM
+;cse:    .byte 1 				; current data section: 0 = FLASH, 2 = EEPROM, 4 = RAM
 .equ cse = GPIOR1
-;state:   .byte 1 				; compilation state 0=INTERPRET, 1=COMPILE
+;state:   .byte 1 				; compilation state: 0 = interpret, 1 = compile
 ;++ moved to fSTATE in FLAGS2
 
 uvars:   .byte (-us0)
@@ -445,58 +443,15 @@ dpdata:
 		.dw 0xffff				; force first cell of EEPROM to 0xffff
 
 .cseg
-.org 0
-;		rjmp WARM_VECTOR
-		.dw 0xcefe
+.org 0						; entry from bootloader
+;		rjmp WARM_VECTOR		; relative jump backwards with addr wrap around 
+		.dw 0xcefe				; .. from 0x0000 to 0x3fff (ATmega328 ONLY)
 
 ;*******************************************************************
 ; Start of kernel
 ;*******************************************************************
 .org KERNEL_START
 
-	.if (FLASHEND == 0x1ffff)
-        	fdw		PAUSE_L		; ### check ###
-	WDON_L:
-        	.db		NFA|3,"wd+"
-	WDON:
-        	cli
-        	wdr
-        	lds tosh,WDTCSR
-        	ori tosh,(1<<WDCE)|(1<<WDE)
-        	sts WDTCSR,tosh
-        	andi tosl,7
-        	ori tosl,(1<<WDE)
-        	sts WDTCSR,tosl
-        	sei
-        	rjmp DROP
-
-	; WD- ( -- )    stop the watchdog
-			fdw		WDON_L
-	WDOFF_L:
-			.db		NFA|3,"wd-"
-	WDOFF:
-			cli
-			wdr
-		.ifdef MCUSR
-					out MCUSR,r_zero
-		.else
-					out MCUCSR,r_zero
-		.endif
-	       ldi t0,(1<<WDCE)|(1<<WDE)
-	       sts WDTCSR,t0
-	       sts WDTCSR,r_zero
-	       sei
-	       ret
-
-	; WDR ( -- )    kick the dog
-	       fdw		WDOFF_L
-	CWD_L:
-	       .db		NFA|INLINE|3,"cwd"
-	CWD:
-	       wdr
-	       ret
-	.endif
-;***************************************************
 FLASHHI:
 		.dw		FLASH_HI
 		.dw		EEPROM_HI
@@ -522,7 +477,6 @@ WARMLIT:
 		.dw		up0					; Task link
 ;;; ************************************************
 ;;; EMPTY dictionary data
-; *******************************************************************
 .equ coldlitsize=12
 COLDLIT:
 STARTV: .dw		0
@@ -532,6 +486,280 @@ DPD:    .dw		dpdata
 LW:     fdw		lastword
 STAT:   fdw		DOTSTATUS
 ;*******************************************************************
+
+.if (FLASHEND == 0x1ffff)
+        	fdw		PAUSE_L		; ### check ###
+	WDON_L:
+        	.db		NFA|3,"wd+"
+	WDON:
+        	cli
+        	wdr
+        	in_ tosh,WDTCSR
+        	ori tosh,(1<<WDCE)|(1<<WDE)
+        	out_ WDTCSR,tosh
+        	andi tosl,7
+        	ori tosl,(1<<WDE)
+        	out_ WDTCSR,tosl
+        	sei
+        	rjmp DROP
+
+	; WD- ( -- )    stop the watchdog
+			fdw		WDON_L
+	WDOFF_L:
+			.db		NFA|3,"wd-"
+	WDOFF:
+			cli
+			wdr
+		.ifdef MCUSR
+					out_ MCUSR,r_zero
+		.else
+					out_ MCUCSR,r_zero
+		.endif
+	       ldi t0,(1<<WDCE)|(1<<WDE)
+	       out_ WDTCSR,t0
+	       out_ WDTCSR,r_zero
+	       sei
+	       ret
+.endif
+
+		fdw 	DZEROLESS_L
+; cwd  ( -- )				kick watchdog
+CWD_L:
+		.db		NFA|INLINE|3,"cwd"
+;CWD:
+		wdr
+		ret
+
+
+		fdw		SCAN_L
+; RX0?  ( -- n )				return the number of characters in queue
+RX0Q_L:
+		.db		NFA|INLINE4|4,"rx0?",0xff
+RX0Q:
+		pushtos
+		lds tosl,rbuf0_lv
+		ldi tosh,0				; 5 / 7
+		ret
+
+
+		fdw		 NONAME_L
+; /STRING ( a u n -- a+n u-n )	trim string
+;	swap over - >r + r> ;
+SLASHSTRING_L:
+		.db		NFA|7,"/string"
+;SLASHSTRING:
+		movw t5t4,TOP			; n
+		poptos					; u
+		pop_t1t0				; a
+		sub tosl,t4			; u-n
+		sbc tosh,t5
+		add t0,t4				; a+n
+		adc t1,t5
+		push_t1t0				; 11 / 17
+		ret
+
+
+		fdw		DINVERT_L
+; DECIMAL ( -- )				set number base to decimal
+;	#10 BASE ! ;
+DECIMAL_L:
+		.db		NFA|7,"decimal"
+;DECIMAL: 
+		ldi t0,0x0a
+BASE_STORE:
+		movw Z,UP
+		sbiw Z,(-ubase)
+		st Z+,t0
+		st Z+,r_zero			; 5 / 8
+		ret
+
+		fdw		ICCOMMA_L
+; HEX ( -- )					set number base to hex
+;	#16 BASE ! ;
+HEX_L:
+		.db		NFA|3,"hex"
+;HEX:
+		ldi t0,0x10
+		rjmp BASE_STORE
+
+		fdw		CTON_L
+; BIN ( -- )					set number base to binary
+;	#2 BASE ! ;
+BIN_L:
+		.db		NFA|3,"bin"
+;BIN:
+		ldi t0,2
+		rjmp BASE_STORE
+
+
+		fdw		USLASHMOD_L
+; ticks ( -- u )				system ticks (0-ffff) in milliseconds
+TICKS_L:
+		.db		NFA|INLINE|5,"ticks"
+;TICKS:  
+		pushtos
+;TICKS_0:
+		movw TOP,MS_COUNT		; 3 / 5
+		ret
+
+
+		fdw		USSMOD_L
+; ticks= ( u -- t )				leave time in ms from u to actual ms_count
+TICKSCOMPUTE_L:
+		.db		NFA|INLINE4|6,"ticks=",0xff
+;TICKSCOMPUTE:
+		movw t1t0,TOP
+		movw TOP,MS_COUNT
+		sub tosl,t0
+		sbc tosh,t1				; 4 / 4
+		ret
+
+	
+		fdw		TURNKEY_L
+; ticks>n  ( x -- u x )			push system ticks to NEXT
+TICKStoNEXT_L:
+		.db		NFA|INLINE|7,"ticks>n"
+;TICKStoNEXT:
+		movw t1t0,MS_COUNT
+		push_t1t0				; 3 / 5
+		ret
+
+
+		.dw		0
+; us ( u -- )					pause for u microseconds, u > 0
+;	begin 1- dup while waste9 waste2 repeat drop ;
+; for ATmega328/p with 16 MHz
+MICROS_L:
+		.db		NFA|2,"us",0xff
+MICROS:							; CPU ticks
+		  sbiw TOP,1			; 2(2)
+MICROS_loop:
+			breq MICROS_xxx		; 1(2)
+		  rcall waste9			; 9				(does: 'adiw TOP,1')
+		  wdr  wdr				; 2
+		  sbiw TOP,2			; 2 
+		rjmp MICROS_loop		; 2______________16 ticks (= 1 us) per loop
+MICROS_xxx:
+		poptos					;  (4)
+		ret						;(4+4) call/ret__16 ticks for entry+exit
+
+
+		fdw 	TIBSIZE_L
+; SQR  ( u -- u^2 )				16-bit square
+; valid results for u < 256 only
+SQUARE_L:
+		.db		NFA|INLINE|3,"sqr"
+;SQUARE:
+		mul tosl,tosl
+		movw TOP,R1:R0			; 2 / 3
+		ret
+
+
+		fdw		SWOP_L
+; SQRT  ( u -- u' )				16-bit square root
+; no rounding, no remainder on stack
+SQUAREROOT_L:
+		.db		NFA|4,"sqrt",0xff
+;SQUAREROOT:
+		movw t1t0,TOP
+		clr tosl
+		ldi tosh,0x80
+SQRT_loop:
+		  eor tosl,tosh
+		  mul tosl,tosl
+		  cp  t0,R0
+		  cpc t1,R1
+		  brcc PC+2
+			eor tosl,tosh
+		lsr tosh
+		brne SQRT_loop
+
+		ret
+
+
+.if optimizingCOMPILER == 1
+	cSTAR_0:						; inline code for 'cLIT *'
+			 movw t7t6,TOP
+			 mul t0,t6
+			 movw TOP,R1:R0
+			 mul t0,t7
+			 add tosh,R0			;  5 / 7
+			 ret
+.endif
+
+		fdw		PLUS_L
+; 								16 x 16 bit to 16 bit multiply
+STAR_L:
+		.db		NFA|INLINE5|1,"*"
+STAR: 
+		pop_t1t0
+STAR_0:
+		movw t7t6,TOP
+		mul t0,t6
+		movw TOP,R1:R0
+		mul t1,t6
+		add tosh,R0
+		mul t0,t7				;  7 / 10 for  'LIT *'
+		add tosh,R0				;  9 / 14
+		ret		
+
+
+		fdw		outerINDEX_L
+; i	( -- index  R: limit index -- limit index )
+innerINDEX_L:
+		.db		NFA|0x20|1,"i"
+;innerINDEX:			; ++++ must be inlined ++++
+		pushtos
+		in ZL,SPL
+		in ZH,SPH
+		ldd tosl,Z+2			; index
+		ldd tosh,Z+1			; 6 / 10
+		ret
+
+
+		fdw		LEFTBRACKET_L
+; j ( -- index'  R: limit' index' limit index -- limit' index' limit index )
+outerINDEX_L:
+		.db		NFA|0x20|1,"j"
+;outerINDEX:			; ++++ must be inlined ++++
+		pushtos
+		in ZL,SPL
+		in ZH,SPH
+		ldd tosl,Z+6			; index'
+		ldd tosh,Z+5			; 6 / 10
+		ret
+
+
+		fdw		SPACE_L
+; SIGN? ( addr n -- addr' n' f )	get optional sign (n<0x100)
+;							+ leaves $0000 flag
+;							- leaves $0002 flag
+SIGNQ_L:
+		.db		NFA|5,"sign?"
+;SIGNQ:
+		ldd ZL,Y+0				; addr
+		ldd ZH,Y+1
+		mov t0,tosl				; n
+		pushtos					; OVER c@
+
+		;call CFETCH_Zplus
+		ld tosl,Z+				; in RAM
+
+		subi tosl,'+'
+		  breq SIGNQIS
+		cpi tosl,2				; '-'
+		  breq SIGNQIS
+		clr tosl
+		;ldi tosh,0x00			; (unchanged)
+		ret
+SIGNQIS:
+		std Y+3,ZH				; addr'
+		std Y+2,ZL
+		dec t0
+		;std Y+1,r_zero			; (unchanged)
+		std Y+0,t0				; n'
+		;ldi tosh,0x00			; (unchanged)
+		ret
 
 
 		fdw		TOR_L
@@ -592,16 +820,6 @@ LEFTBRACKET_L:
 		.db		NFA|IMMED|1,"["
 ;LEFTBRACKET:
 		cbr FLAGS2,(1<<fSTATE)
-		ret
-
-
-		fdw		DOTS_L
-DOTQUOTE_L:
-		.db		NFA|IMMED|COMPILE|2,".",0x22,0xff
-;DOTQUOTE:
-		rcall SQUOTE
-		rcall DOCOMMAXT
-		fdw TYPE
 		ret
 
 
@@ -740,9 +958,20 @@ HP_L:
 		.db		NFA|INLINE|2,"hp",0xff
 ;HP:
 		pushtos
-		movw TOP,UP			; 3 / 5
+		movw TOP,UP				; 3 / 5
 		;sbiw TOP,(-uhp)		; uhp = 0
 		ret
+
+
+		fdw		DOTS_L
+DOTQUOTE_L:
+		.db		NFA|IMMED|COMPILE|2,".",0x22,0xff
+;DOTQUOTE:
+		rcall SQUOTE
+		rcall DOCOMMAXT
+		fdw TYPE
+		ret
+
 
 .if IDLE_MODE == 0
 		fdw		CELL_L
@@ -788,17 +1017,6 @@ UMAX_0:
 		ret
 
 
-		fdw 	TICKS_L
-SWOPMINUS_L:
-		.db		NFA|INLINE4|5,"swap-"
-SWOPMINUS:
-		pop_t1t0
-SWOPMINUS_0:
-		sub tosl,t0
-		sbc tosh,t1				; 4 / 6
-		ret
-
-
 		fdw		BIN_L
 AND_L:
 		.db		NFA|INLINE4|3,"and"
@@ -821,7 +1039,17 @@ OR_0:
 		ret
 
 
-		fdw		ZFL_L
+		fdw    STORE_P_TO_R_L
+.ifdef RAMPZ
+	ZFL_L:
+			.db		NFA|3, "zfl"
+	;ZFL:
+			rcall DOCREATE
+			.dw RAMPZV
+
+
+			fdw		ZFL_L
+.endif
 XOR_L:
 		.db		NFA|INLINE4|3, "xor"
 XOR_:
@@ -845,6 +1073,7 @@ INVERT_L:
 ONEPLUS_L:
 		.db		NFA|INLINE|2,"1+",0xff
 ;ONEPLUS:
+waste9:
 		adiw TOP,1				; 1 / 2
 		ret
 
@@ -953,10 +1182,11 @@ FUNLOCK_L:
 		cbi FLAGS3,fLOCK		; 1 / 1
 		ret
 
-/*
+; #########################################################################
+; fast RAM access - do NOT use, if <adr> is a literal, constant or variable
 		fdw		MPLUS_L
 MSTORE_L:
-		.db		NFA|INLINE|2,"m!",0xff
+		.db		NFA|INLINE5|2,"m!",0xff
 MSTORE:
 		movw Z,TOP
 		poptos
@@ -964,10 +1194,9 @@ MSTORE:
 		std Z+0,tosl
 		poptos					; 7 / 13
 		ret
-*/
+
 
 		fdw		MS_L
-; fast RAM access
 MFETCH_L:
    	    .db		NFA|INLINE|2,"m@",0xff
 MFETCH:
@@ -980,23 +1209,23 @@ MFETCH:
 		fdw		MIN_L
 MCFETCH_L:
    	    .db		NFA|INLINE|3,"mc@"
-;MCFETCH:
+MCFETCH:
 		movw Z,TOP
 		ld tosl,Z+
 		ldi tosh,0x00			; 3 / 4
 		ret
 
-/*
+
 		fdw		MCFETCH_L
 MCSTORE_L:
-		.db		NFA|INLINE|3,"mc!"
+		.db		NFA|INLINE5|3,"mc!"
 MCSTORE:
 		movw Z,TOP
 		poptos
 		st Z,tosl
 		poptos					; 6 / 11
 		ret
-*/
+; #########################################################################
 
 		fdw		FCY_L
 ; DUP must not be reachable from user code with rcall
@@ -1071,7 +1300,7 @@ XA_FROM_L:
 		ret
 
 
-		 fdw    R_TO_P_L
+		fdw    R_TO_P_L
 PFL_L:
 		.db		NFA|3,"pfl"
 ;PFL:
@@ -1079,25 +1308,16 @@ PFL_L:
 		.dw OFLASH
 
 
-		fdw    STORE_P_TO_R_L
-;	.dw		0
-ZFL_L:
-		.db		NFA|3, "zfl"
-;ZFL:
-		rcall DOCREATE
-		.dw RAMPZV
-
-
 		fdw		FALSE_L
 ; leave clear top of return stack
 ENDIT_L:
 		.db		NFA|COMPILE|0x20|5,"endit"
 ;ENDIT:						; ++++ must be inlined ++++
-		 in ZH,SPH
-		 in ZL,SPL
-		 std Z+1,r_zero
-		 std Z+2,r_zero			; 4 / 6
-		 ret
+		in ZH,SPH
+		in ZL,SPL
+		std Z+1,r_zero
+		std Z+2,r_zero			; 4 / 6
+		ret
 
 
         fdw		 RSAVE_L
@@ -1125,15 +1345,15 @@ STOD_L:
 MEMHI_L:
         .db		NFA|2,"hi",0xff
 ;MEMHI:
-		 pushtos
+		pushtos
 ;MEMHI_0:
-		 in ZL,cse
-		 clr ZH
-		 subi ZL, LOW(-(FLASHHI<<1))
-		 sbci ZH,HIGH(-(FLASHHI<<1))
-		 lpm tosl,Z+
-		 lpm tosh,Z+
-		 ret
+		in ZL,cse
+		clr ZH
+		subi ZL, LOW(-(FLASHHI<<1))
+		sbci ZH,HIGH(-(FLASHHI<<1))
+		lpm tosl,Z+
+		lpm tosh,Z+
+		ret
 
 
         fdw		 A_FROM_L
@@ -1161,8 +1381,8 @@ L_PTWOPLUS:
 TIU_L:
         .db		NFA|INLINE4|3,"tiu"
 ;TIU:
-		 inline_DOUSER utib		; 4 / 7
-		 ret
+		inline_DOUSER utib		; 4 / 7
+		ret
 
 
         fdw		TO_PRINTABLE_L
@@ -1171,8 +1391,8 @@ TIU_L:
 TOIN_L:
         .db		NFA|INLINE4|3,">in"
 TOIN:
-		 inline_DOUSER utoin	; 4 / 7
-		 ret
+		inline_DOUSER utoin		; 4 / 7
+		ret
 
 
         fdw		SLASHSTRING_L
@@ -1181,8 +1401,8 @@ TOIN:
 TICKSOURCE_L:
         .db		NFA|INLINE4|7,"'source"
 ;TICKSOURCE: 				; two cells !!!!!!
-		 inline_DOUSER usource	; 4 / 7
-		 ret
+		inline_DOUSER usource	; 4 / 7
+		ret
 
 
         fdw		PFETCH_L
@@ -1209,33 +1429,33 @@ UEMIT_L:
 kernellink_long:
         .db		NFA|INLINE4|5,"'emit"
 ;UEMIT_:
-		 pushtos
+		pushtos
 UEMIT_0:
-		 movw TOP,UP
-		 sbiw TOP,(-uemit)		; 4 / 7
-		 ret
+		movw TOP,UP
+		sbiw TOP,(-uemit)		; 4 / 7
+		ret
 
         
         fdw		TWODUP_L
 UKEY_L:
         .db		NFA|INLINE4|4,"'key",0xff
 ;UKEY_:
-		 pushtos
+		pushtos
 UKEY_0:
-		 movw TOP,UP
-		 sbiw TOP,(-ukey)		; 4 / 7
-		 ret
+		movw TOP,UP
+		sbiw TOP,(-ukey)		; 4 / 7
+		ret
 
 
         fdw		TWODROP_L
 UKEYQ_L:
         .db		NFA|INLINE4|5,"'key?"
 ;UKEYQ_:
-		 pushtos
+		pushtos
 UKEYQ_0:
-		 movw TOP,UP
-		 sbiw TOP,(-ukeyq)		; 4 / 7
-		 ret
+		movw TOP,UP
+		sbiw TOP,(-ukeyq)		; 4 / 7
+		ret
 
 
         fdw		POSTPONE_L
@@ -1299,7 +1519,7 @@ MTSTZ_0:
 
 
 		fdw		NEXT_L
-; mtst ( mask addr -- flag )
+; mtst ( mask addr -- f )
 ;   c@ and ;
 MTST_L:
 		.db		NFA|INLINE5|4,"mtst",0xff
@@ -1326,8 +1546,38 @@ MTST_0:
 			.db		NFA|INLINE|4,"busy",0xff
 	;BUSY:
 			cbr FLAGS2,(1<<fIDLE)	; 1 / 1
+  .if CPU_LOAD_LED == 1
+  			sbrc FLAGS2,fLOADled
+       .if CPU_LOAD_LED_POLARITY == 1
+			cbi_ CPU_LOAD_PORT,CPU_LOAD_BIT
+       .else
+       		sbi_ CPU_LOAD_PORT,CPU_LOAD_BIT
+       .endif
+  .endif
 			ret
 .endif
+
+
+		fdw		FLOCK_L
+FCY_L:
+		.db		NFA|3,"Fcy"
+		rcall DOCREATE
+		.dw FREQ_OSC/1000
+
+
+		fdw		TWOCONSTANT_L
+VARIABLE_L:
+		.db		NFA|8,"variable",0xff
+VARIABLE_:
+		ldi t1,2
+VARIABLE_1:
+		rcall HERE				; (uses t0)
+		clr t0
+		add t1,tosl				; t0:t1 (++ high<>low swapped ++) 
+		adc t0,tosh
+		st -Z,t0				; (Z-pointer valid from HERE)
+		st -Z,t1
+		rjmp CONSTANT_
 
 
         fdw		TICK_L
@@ -1581,26 +1831,26 @@ NUMS:
 SKIP_L:
         .db		NFA|4,"skip",0xff
 SKIP:
-		 mov t0,tosL			; c in t0
-		 poptos					; u in tosl
+		mov t0,tosL				; c in t0
+		poptos					; u in tosl
 SKIP_0:
-		 pop_Z					; c-addr in Z
+		pop_Z					; c-addr in Z
 SKIP_loop:
-		   sbiw TOP,1
-             brcs SKIP_leave
-		   ld t1,Z+				; fetched char
-		   cpi t1,TAB_
-		     breq SKIP_loop
-		   cp t1,t0
-		 breq SKIP_loop
+		  sbiw TOP,1
+            brcs SKIP_leave
+		  ld t1,Z+				; fetched char
+		  cpi t1,TAB_
+		    breq SKIP_loop
+		  cp t1,t0
+		breq SKIP_loop
 SKIP_mismatch:
 SCAN_match:
-		 sbiw Z,1				; set c-addr back to found match
+		sbiw Z,1				; set c-addr back to found match
 SKIP_leave:
 SCAN_leave:
-		 adiw TOP,1
-		 push_Z
-		 ret
+		adiw TOP,1
+		push_Z
+		ret
 
 
 		fdw		SIGN_L
@@ -1609,49 +1859,27 @@ SCAN_leave:
 SCAN_L:
 		.db		NFA|4,"scan",0xff
 SCAN:
-		 mov t0,tosl			; c in t0
-		 poptos					; u in tos
+		mov t0,tosl				; c in t0
+		poptos					; u in tos
 SCAN_0:
-		 pop_Z					; c-addr in Z
+		pop_Z					; c-addr in Z
 SCAN_loop:
-		   sbiw TOP,1
-		     brcs SCAN_leave
-		   ld t1,Z+
-		   cpi t1,TAB_
-		     breq SCAN_match
-		   cp t1,t0
-		 brne SCAN_loop
-		 rjmp SCAN_match
-
-
-		fdw		FLOCK_L
-FCY_L:
-		.db		NFA|3,"Fcy"
-		rcall DOCREATE
-		.dw FREQ_OSC/1000
-
-
-		fdw		TWOCONSTANT_L
-VARIABLE_L:
-		.db		NFA|8,"variable",0xff
-VARIABLE_:
-		 ldi t1,2
-VARIABLE_1:
-		 rcall HERE				; (uses t0)
-		 clr t0
-		 add t1,tosl			; t0:t1 (++ high<>low swapped ++) 
-		 adc t0,tosh
-		 st -Z,t0				; (Z-pointer valid from HERE)
-		 st -Z,t1
-		 rjmp CONSTANT_
+		  sbiw TOP,1
+		    brcs SCAN_leave
+		  ld t1,Z+
+		  cpi t1,TAB_
+		    breq SCAN_match
+		  cp t1,t0
+		brne SCAN_loop
+		rjmp SCAN_match
 
 
 		fdw		IMMEDIATE_L
 TWOVARIABLE_L:
 		.db		NFA|9,"2variable"
 TWOVARIABLE_:
-		 ldi t1,4
-		 rjmp VARIABLE_1
+		ldi t1,4
+		rjmp VARIABLE_1
 
 
 		fdw		EIGHTRSHIFT_L
@@ -1717,13 +1945,13 @@ FRAM:
 DP_L:
 		.db		NFA|INLINE5|2,"dp",0xff
 DP:
-		 pushtos
+		pushtos
 DP_0:
-		 in tosl,cse
-		 clr tosh
-		 subi tosl, LOW(-dpFLASH)
-		 sbci tosh,HIGH(-dpFLASH)	; 6 / 8
-		 ret
+		in tosl,cse
+		clr tosh
+		subi tosl, LOW(-dpFLASH)
+		sbci tosh,HIGH(-dpFLASH)	; 6 / 8
+		ret
 
 
 		fdw		HOLD_L
@@ -1732,48 +1960,44 @@ DP_0:
 HERE_L:
 		.db		NFA|4,"here",0xff
 HERE:
-		 pushtos
+		pushtos
 HERE_0:
-		 in ZL,cse
-		 clr ZH
-		 subi ZL, LOW(-dpFLASH)
-		 sbci ZH,HIGH(-dpFLASH)
-		 ld tosl,Z+
-		 ld tosh,Z+				; 8 / 12
-		 ret	
+		in ZL,cse
+		clr ZH
+		subi ZL, LOW(-dpFLASH)
+		sbci ZH,HIGH(-dpFLASH)
+		ld tosl,Z+
+		ld tosh,Z+				; 8 / 12
+		ret	
 
 
 		fdw		CWD_L
 COMMAXT_L:
 		.db		NFA|3, "cf,"
 COMMAXT:
-		duptos
+		movw t5t4,TOP
 		lds t0,dpFLASH
 		lds t1,dpFLASH+1
 
-  .if FLASHEND < 0x4000
-			cpi tosh,0xf0
+  .if FLASHEND == 0x3fff			; for ATmega328 ONLY!!:
+			cpi t5,0xf0
 			brcs COMMAXT_xxx
-			  ;cbr tosh,HIGH(PFLASH)	; 'rcall ...' with wrap around at flashhi
-			  andi tosh,0x0f
-			  ori tosh,HIGH(PFLASH-0x1000)
+			  cbr t5,HIGH(PFLASH)	; 'rcall ...' into kernel (wrap around at 0x0000)
 	COMMAXT_xxx:
   .endif
 
-		sub tosl,t0
-		sbc tosh,t1
-		;sbrc tosh,7			; (size vs. speed)
-		;  rcall negate
+		sub t4,t0
+		sbc t5,t1
 		brpl COMMAXT_yyy
-		  com tosl
-		  com tosh
-		  adiw TOP,1
+		  com t4
+		  com t5
+		  adiw t5t4,1
 COMMAXT_yyy:
-		cpi tosl,0xfc
-		ldi tosl,0x0f
-		cpc tosh,tosl
-		poptos
+		cpi t4,0xfc
+		ldi t4,0x0f
+		cpc t5,t4
 		  brcs STORECF1
+
 STORECFF1: 
 		sub_pflash_tos			; compile 'call ..'
 		lsr tosh
@@ -1801,7 +2025,7 @@ STORECF1:
 		asr tosh
 		ror tosl
 		andi tosh,0x0f
-		ori tosh,0xd0
+		ori tosh,0xd0			; 'rcall ..'
 		rjmp ICOMMA_
 
 
@@ -1885,7 +2109,7 @@ SWOP:
 
 
 		fdw		QUIT_L
-; ( xu ... x0 u -- xu ... x0 xu )
+; ( nx .. n1 n0 u -- nx .. n1 n0 nu )
 PICK_L:
 		.db		NFA|INLINE5|4,"pick",0xff
 PICK:
@@ -1896,6 +2120,7 @@ PICK:
 		ld tosl,Z+
 		ld tosh,Z+				; 6 / 8
 		ret
+
 
 
 		fdw 	PICK_L
@@ -1912,44 +2137,44 @@ OVER:
 TOR_L:
 		.db		NFA|COMPILE|0x20|2,">r",0xff
 ;TOR:					;++++ must be inlined ++++
-		 push tosl
-		 push tosh
-		 poptos					; 4 /  8
-		 ret
+		push tosl
+		push tosh
+		poptos					; 4 /  8
+		ret
 
 		fdw		RFETCH_L
 RFROM_L:
 		.db		NFA|COMPILE|0x20|2,"r>",0xff
 ;RFROM:					;++++ must be inlined ++++
-		 pushtos
-		 pop tosh
-		 pop tosl				; 4 /  8
-		 ret
+		pushtos
+		pop tosh
+		pop tosl				; 4 /  8
+		ret
 
 
 		fdw		SQUOTE_L
 RFETCH_L:
 		.db		NFA|COMPILE|0x20|2,"r@",0xff
 ;RFETCH:				;++++ must be inlined ++++
-		 pushtos
-		 in ZL,SPL
-		 in ZH,SPH
-		 ldd tosl,Z+2
-		 ldd tosh,Z+1			; 6 / 10
-		 ret				
+		pushtos
+		in ZL,SPL
+		in ZH,SPH
+		ldd tosl,Z+2
+		ldd tosh,Z+1			; 6 / 10
+		ret				
 
 		fdw		AND_L
 ; ABS ( n -- |n| )				absolute value of n
 ABS_L:
-		.db		NFA|INLINE|3,"abs"
+		.db		NFA|INLINE5|3,"abs"
 ABS_:
-		 tst tosh
-		 brpl ABS_1
-		   com tosl
-		   com tosh
-		   adiw TOP,1
+		tst tosh
+		brpl ABS_1
+		  com tosl
+		  com tosh
+		  adiw TOP,1
 ABS_1:							; 5 / 3..6
-		 ret
+		ret
 
 
 		fdw		COMMA_L
@@ -1968,10 +2193,20 @@ PLUS_0:
 ALIGN_L:
 		.db		NFA|5,"align"
 ;ALIGN:
-		 rcall HERE
-		 adiw TOP,1
-		 cbr tosl,1
-		 rjmp ALLOT_1			; Z-pointer valid from HERE
+		rcall HERE
+		adiw TOP,1
+		cbr tosl,1
+		rjmp ALLOT_1			; Z-pointer valid from HERE
+
+
+		fdw 	TICKS_L
+SWOPMINUS_L:
+		.db		NFA|INLINE4|5,"swap-"
+SWOPMINUS:
+		pop_t1t0
+		sub tosl,t0
+		sbc tosh,t1				; 4 / 6
+		ret
 
 
 		fdw		CREATE_L
@@ -1979,39 +2214,28 @@ ALIGN_L:
 ACCEPT_L:
 		.db		NFA|6,"accept",0xff
 ACCEPT:
-		movw t1t0,TOP
+		movw t3t2,TOP
 		ldd tosl,Y+0
 		ldd tosh,Y+1
-		add t0,tosl				; ( c-addr c-addr ) end-addr in t1:t0
-		adc t1,tosh
-ACC0:
-		push t0
-		push t1
+		add t2,tosl				; ( c-addr c-addr ) end-addr in t3:t2
+		adc t3,tosh
 ACC1:
-		  call KEY				; ( c-addr c-addr c )
+		  call KEY				; ( c-addr c-addr' c )
 
 		  movw X,UP
 		  sbiw X,(-uflg)
 
+		  cpi tosl, CR_
+			breq ACC_CR
 		  cpi tosl, LF_
 			breq ACC_LF
-		  cpi tosl, BS_
-			breq ACC_BS_DEL
 		  cpi tosl, 127
 			breq ACC_BS_DEL
-		  cpi tosl, CR_
+		  cpi tosl, BS_
 			brne ACC3
-ACC_CR:
-		  st X,tosl
-		  poptos
-;			rjmp ACC6
-ACC6:
-		  pop t0
-		  pop t0
-		  rjmp SWOPMINUS
 
 ACC_BS_DEL:
-		  st X,r_zero
+		  st X,r_zero			; uflg = 0x00
 		  poptos
 		  ldd t0,Y+0
 		  ldd t1,Y+1
@@ -2021,40 +2245,34 @@ ACC_BS_DEL:
 		  sbiw TOP,1
 		  rcall XSQUOTE
 		  .db   3,8,0x20,8
-		call TYPE
+		  call TYPE
 		rjmp ACC1
+
+ACC_CR:
+		  st X,tosl				; uflg = 0x0d
+		  poptos
+		  rjmp SWOPMINUS
 
 ACC_LF:
 		  poptos
 		  ld t0,X
-		  tst t0
-			breq ACC6
-		  st X,r_zero
-		rjmp ACC1
+		  tst t0				; uflg == 0x00 ?
+			breq SWOPMINUS		; ..yes -> line end -> ready
+		  st X,r_zero			; ..no  -> set uflg = 0x00 
+		rjmp ACC1				; ..and get next char
 
 ACC3:
-		  mov t0,tosl
+		  mov t0,tosl			; ( c-addr c-addr' c )
 		  rcall EMIT_t0
-		  pop_X
+		  pop_X					; ( c-addr c		X: c-addr' )
 		  st X+,tosl
-		  movw TOP,X
+		  movw TOP,X			; ( c-addr c-addr" )
 
-		  pop t1
-		  pop t0
-		  cp  t0,tosl
-		  cpc t1,tosh
-		brne ACC0
+		  cp  t2,tosl
+		  cpc t3,tosh
+		brne ACC1
 		rjmp SWOPMINUS
 
-		fdw		SQUARE_L
-; SP@ ( -- addr )				get parameter stack pointer
-SPFETCH_L:
-		.db		NFA|INLINE|3,"sp@"
-SPFETCH:
-		movw t1t0,Y
-		pushtos
-		movw TOP,t1t0			; 4 / 6
-		ret
 
 
 		fdw		S0_L
@@ -2082,6 +2300,17 @@ CQUOTE:
 		cbr tosl,1
 		rcall ALLOT
 		rjmp  PLACE
+
+
+		fdw		SQUARE_L
+; SP@ ( -- addr )				get parameter stack pointer
+SPFETCH_L:
+		.db		NFA|INLINE|3,"sp@"
+SPFETCH:
+		movw t1t0,Y
+		pushtos
+		movw TOP,t1t0			; 4 / 6
+		ret
 
 
 		fdw     FIND_L
@@ -2146,6 +2375,7 @@ LESS:
 ;LESS_0:						; #### check LESSC_ when changing ####
 		sub t0,tosl
 		sbc t1,tosh
+LESS_1:
 		brvc PC+2
 		  com t1
 		lsl t1
@@ -2537,9 +2767,9 @@ CONSTANT_:
 
 	CONST_yyy:
 			sbrc FLAGS2,fSTATE
-			;-------------------------------------------------------------------------
-			  jmp LITERAL			; 'compile' -> compile lit (### must be 'jmp' ###)
-			;-------------------------------------------------------------------------
+			;---------------------------------------------------------------------------
+			  jmp LITERAL			; 'compile' -> compile 'lit' (### must be 'jmp' ###)
+			;---------------------------------------------------------------------------
 			ret						; 'interpret' - > ready
 .else .error "illegal value: optimizingCOMPILER"
 .endif
@@ -2555,7 +2785,7 @@ TWOCONSTANT_:
 		rjmp ADD_RETURN_1
 
 
-		fdw		WORD_L
+		fdw		WARM_L
 ; USER  ( n -- )				create user variable
 USER_L:
 		.db		NFA|4,"user",0xff
@@ -2578,7 +2808,7 @@ XDOUSER:
 
 
 		fdw		PAUSE_L
-; PARSE  ( char -- c-addr u )
+; PARSE  ( char -- c-addr u )								(u < 256)
 PARSE_L:
 		.db		NFA|5,"parse"
 PARSE:
@@ -2595,38 +2825,37 @@ PARSE:
 		adc XH,t1				; a = a + n in X
 		movw Z,X				; Z: astart
 		sub tosl,t0				; u = u - n (new tib len)
-		sbc tosh,t1				; ( c a u )
+		;sbc tosh,t1				; ( c a u )
 		push tosl				; 'dup >r'
-		push tosh				; ( c a u			R: u )
+		;push tosh				; ( c a u			R: u )	(u < 256)
 		ldd t0,Y+0				; c in t0
 		rcall SKIP_loop			; ( c astart u' )	Z: astart	t0: c
 		movw t3t2,Z				; ( c astart u'		R: u 	t3t2: astart )
 		adiw Y,4				; ( u' )			Z: astart	t0: c
 		rcall SCAN_loop			; ( aend u" )		Z: aend
-;		sbiw TOP,0				; valid Z-flag by SCAN
+		;sbiw TOP,0				; valid Z-flag by SCAN
 		breq PC+2
 		  sbiw TOP,1
 		sub ZL,t2				; astart in t3:t2
 		sbc ZH,t3				; aend-astart (wlen)
 		std Y+1,t3
 		std Y+0,t2				; ( astart u" )
-		pop t1
-		pop t0					; u
+		;pop t1
+		pop t0					; 							(u < 256)
 		sub t0,tosl
-		sbc t1,tosh				; u = u - u" in t1:t0
+		;sbc t1,tosh			; u = u - u" in t1:t0		(u < 256)
 		movw TOP,Z				; ( astart wlen )
 		movw Z,UP
 		sbiw Z,(-utoin)
 		ld XL,Z+				; u >in +!
 		ld XH,Z+
 		add XL,t0
-		adc XH,t1
+		adc XH,r_zero			;							(u < 256)
 		st -Z,XH
 		st -Z,XL
 		ret						; ( astart wlen )
      
 
-;		fdw		UEMIT_L
 	.dw		0
 ; WORD ( char -- c-addr )		word delimited by char and/or TAB
 WORD_L:
@@ -2645,7 +2874,7 @@ WORD:
 IMMEDQ_L:
 		.db		NFA|6,"immed?",0xff
 IMMEDQ: 
-		rcall CFETCH_A			; clears tosh
+		call CFETCH				; clears tosh
 		mov wflags,tosl  		; COMPILE and INLINE flags for the compiler
 		andi tosl,IMMED
 FINDx: 
@@ -2661,7 +2890,7 @@ FIND_L:
 		.db		NFA|4,"find",0xff
 FIND:   
 		duptos
-FIND_0:
+;FIND_0:
 		movw Z,TOP
 		ld t0,Z+
 		ldi16 tos,((kernellink_short<<1)+PFLASH)
@@ -2712,80 +2941,73 @@ TIB_0:
 ; >NUMBER ( 0 0 addr u -- ud.l ud.h addr' u' )
 ;										  0  ) done
 ;										<>0  ) not a number
-;								 convert string to number (u < 0x100)
+;								 convert string in RAM to number (u < 0x100)
 TONUMBER_L:
 		.db		NFA|7,">number"
 ;TONUMBER:
 		movw Z,UP
 		sbiw Z,(-ubase)
 		ld ah,Z					; base in ah
+
+		pop_X					; addr in X
 TONUMBER_0:
 		mov al,r_one			; init 'not a number'-flag
-		mov t8,tosl
-		poptos
-		movw X,TOP
-		tst t8				; ( ud.l ud.h addr		t8: u )
+		mov t8,tosl				; u in t8
+		poptos					; ( 0 0 )
+		tst t8					; ( ud.l ud.h		t8: u )
 		  breq TONUM_exit
 TONUM_loop:
-		  movw TOP,X
-		  rcall CFETCH_A
-/*		  movw Z,X				; (speed vs. size)
-		  cpi ZH,HIGH(PEEPROM)
-			brcs TONUM_RAM
-		  clt
-		  call CFETCH1
-		  rjmp PC+2
-  TONUM_RAM:
-		  ld tosl,Z				; +6 / -10
-*/
-		  cpi tosl,'.'
+		  ld t0,X+
+		  cpi t0,'.'
 			breq TONUM_next
 ;TONUM_digitQ:				; inline DIGITQ
-		  cpi tosl,0x3a			; ( ud.l ud.h c )
+		  cpi t0,0x3a			; ( ud.l ud.h )
 			brcs TONUM_dQ1
-		  cpi tosl,0x61
-		    brcs TONUM_noDIGIT
-		  subi tosl,0x27
+		  cpi t0,'a'			; between '9' and 'a'?
+		    brcs TONUM_noDIGIT	; ..yes -> no digit
+		  subi t0,0x27			; close gap
 TONUM_dQ1:
-		  subi tosl,0x30		; 1
+		  subi t0,'0'
 			brcs TONUM_noDigit
-		  cp tosl,ah
-			brcs TONUM_digit
-TONUM_noDigit:
-TONUM_exit:
-		  push_X
-		  mov tosl,t8			; ( ud.l ud.h addr u )
-		  clr tosh
-		  add tosl,al			; generate 'not a number'-flag, leave valid Z-flag
-		ret
+		  cp t0,ah				; smaller than base?
+		    brcc TONUM_noDigit	; ..no  -> no digit
+;			brcs TONUM_digit	; ..yes -> go on with digit
 
 TONUM_digit:
-;baseStarPlus:				; multiply by base and add digit
-		  pop_t7t6				; ud.h
+;baseStarPlus:				; multiply by base (ah) and add digit (t0)
+		  movw t7t6,TOP
 		  mul t6,ah
-		  movw t1t0,R1:R0
-		  mul t7,ah
-		  add t1,R0
-		  pop_t7t6				; ud.l
-		  mul t6,ah
-		  mov t6,tosl
 		  movw TOP,R1:R0
 		  mul t7,ah
-		  add tosl,t6
-		  adc tosh,R0			; ud'.l in TOP
-		  adc t0,R1
-		  adc t1,r_zero			; ud'.h in t1t0
+		  add tosh,R0
+		  ld t6,Y+				; ud.l
+		  ld t1,Y+
+		  mul t6,ah
+		  movw t7t6,R1:R0
+		  mul t1,ah
+		  add t6,t0				; add digit	
+		  adc t7,R0				; ud'.l in t7t6
+		  adc tosl,R1			; ud'.h in TOP
+		  adc tosh,r_zero
 		 					; ++++ end baseStarPlus ++++
-		  pushtos	
-		  push_t1t0				; ( ud'.l ud'h		t8: u	X: addr )
-								; 18 / 28
+		  push_t7t6				; ( ud'.l ud'h		t8: u	X: addr )
+								; 17 / 25
 		  mov al,r_zero			; clear 'not a number'-flag
 
 TONUM_next:
-		  adiw X,1
-		dec t8					; ( ud'.l ud'.h addr+1		t8: u-1 )
+		dec t8					; ( ud'.l ud'.h 	t8: u-1	X: addr )
 		brne TONUM_loop
 		breq TONUM_exit
+
+TONUM_noDigit:
+		  sbiw X,1
+TONUM_exit:
+		  pushtos
+		  push_X
+		  mov tosl,t8			; ( ud.l ud.h addr' u' )
+		  clr tosh
+		  add tosl,al			; generate 'not a number'-flag, leave valid Z-flag
+		ret
 
 
 		fdw		STAR_L
@@ -2804,7 +3026,6 @@ PAREN_L:
 TWOMINUS_L:
 		.db		NFA|INLINE|2,"2-",0xff
 ;TWOMINUS:
-waste9:
 		sbiw TOP,2				; 1 / 2
 		ret
 
@@ -2878,45 +3099,6 @@ BL_WORD:
 		rjmp WORD
 
 
-		fdw		DOTID_L
-; findi	( c-addr nfa -- c-addr 0 )	if not found
-;		(				xt     1 )	if immediate
-;		(				xt    -1 )	if normal
-; first in RAM, second in FLASH, Z-flag
-BRACFIND_L:
-kernellink_mid:
-		.db		NFA|3,"(f)"
-findi:
-findi_loop:
-		  ldd XL,Y+0			; c-addr -> X
-		  ldd XH,Y+1
-		  movw t3t2,TOP			; save NFA
-		  rcall NEQUAL_0		; leaves valid Z-flag
-			breq findi_match
-		  movw Z,t3t2
-		  sbiw Z,2				; NFA -> LFA
-		  set					; 'fetch word' flag
-		  call IFETCH
-		sbiw TOP,0				; LFA 0=?
-		brne findi_loop			; no -> valid new NFA -> loop
-findi_noMatch:
-		;sez
-		ret						; yes-> end of dict -> return
-
-findi_match:					; TOP = 0 
-		adiw Z,1				; 'aligned'
-		cbr ZL,1
-		add_pflash_z
-		std Y+1,ZH				; CFA > next
-		std Y+0,ZL
-		mov wflags,t0  			; COMPILE and INLINE flags for the compiler (loaded to t0 in NEQUAL)
-		sbiw TOP,1				; 'normal'		Z clear	N set
-		sbrc wflags,IMMEDbit
-		  adiw TOP,2			; ->'immediate'	Z clear N clear
-;;		clz
-		ret
-
-
 .if optimizingCOMPILER == 1
 	SWOP_C_:						; fdw SWOP in TOP
 			rcall ldi16_t1t0_C_
@@ -2925,46 +3107,43 @@ findi_match:					; TOP = 0
 
 	STARIC_:						; fdw STAR in TOP
 			rcall ldi16_t1t0_C_
-			adiw TOP,4
+			adiw TOP,(STAR_0 - STAR)*2
 			in t1,litbuf1
 			cpse t1,r_zero
 			  rjmp INLINE0			; -> fdw STAR_0
+			  					; shorter for LIT < 0x100
 			ldi t0,2
-			rcall IDPMINUS
-			adiw TOP,16				; -> fdw cSTAR_0
-			rjmp INLINE0
+			rcall IDPMINUS			; drop 'ldi t1,<lit1>'
+			sbiw TOP,(STAR_0 - cSTAR_0)*2
+			rjmp INLINE0			; -> fdw cSTAR_0
 
 	ULESSC_:						; fdw ULESS in TOP
-			adiw TOP,40				; -> fdw UGREATER_0	(+24) (TOP >< t1:t0 swapped)
+			adiw TOP,40				; -> fdw UGREATER_0	(+24) (TOP >< t1:t0 swapped at exec time)
 
 	UGREATERC_:						; fdw UGREATER in TOP
-			adiw TOP,4				; -> fdw ULESS_0 	(-16) (TOP >< t1:t0 swapped)
+			adiw TOP,4				; -> fdw ULESS_0 	(-16) (TOP >< t1:t0 swapped at exec time)
 
 	GREATERC_:						; fdw GREATER in TOP
-			sbiw TOP,20				; -> fdw LESS_0		(-20) (TOP >< t1:t0 swapped)
+			sbiw TOP,20				; -> fdw LESS_0		(-20) (TOP >< t1:t0 swapped at exec time)
 			
-			rcall checkDUP
-
-			ldi t1,regt1t0
+			rcall checkDUP			; 'dup' preceeding 'LIT'?
+			sbr FLAGS1,(1<<icarryeq)
 			ldi t0,8
 			sbrc FLAGS1,idup
 			  ldi t0,12
+			ldi t1,regt1t0
 			rcall ldi16_thtl_C_DUP_
-			
-			sbr FLAGS1,(1<<icarryeq)
 			rjmp INLINE0
 
 	LESSC_:							; fdw LESS in TOP
-			adiw TOP,32				; -> fdw GREATER_1	(+32) (TOP >< t1:t0 swapped)
+			adiw TOP,32				; -> fdw GREATER_1	(+32) (TOP >< t1:t0 swapped at exec time)
 			pushtos
 			rcall MINUSC_
 			sbr FLAGS1,(1<<icarryeq)
 			rjmp INLINE0
 
-
-
 	EQUALC_:						; fdw EQUAL in TOP
-			rcall checkDUP
+			rcall checkDUP			; 'dup' preceeding 'LIT'?
 			rcall MINUSC_
 			sbr FLAGS1,(1<<izeroeq)|(1<<iLITeq)
 			inline_DOLIT ((ZEROEQUAL<<1)+PFLASH)
@@ -2985,12 +3164,7 @@ findi_match:					; TOP = 0
 			sbr FLAGS1,(1<<idup)
 	checkDUP_non:
 			rjmp DROP
-.endif
 
-SWOP_A:
-		rjmp SWOP
-
-.if optimizingCOMPILER == 1
 	optMEM_helper:
 			rcall checkDUP			; optimize 'dup LIT !' 'dup LIT c!'
 			lds tosl,litbuf0
@@ -3042,6 +3216,18 @@ SWOP_A:
 			rjmp comp_sts_t0	
 .endif
 
+SWOP_A:
+		rjmp SWOP
+
+		 fdw		IMMEDQ_L
+IFLUSH_L:
+		.db		NFA|6,"iflush",0xff
+IFLUSH:
+		sbic FLAGS3,idirty
+		  rjmp IWRITE_BUFFER
+		ret
+
+
 		.dw		0
 ; INTERPRET ( c-addr u -- )		interpret given buffer (in RAM)
 INTERPRET_L:
@@ -3060,8 +3246,8 @@ INTERPRET:
 IPARSEWORD:
 		rcall BL_WORD
 		brne PC+2				; valid Z-flag left by 'WORD'
-		  rjmp DROP				; INOWORD
-		rcall FIND 				; sets also wflags, leaves valid Z-flag
+		  rjmp DROP				; no word -> stop interpreting
+		rcall FIND 				; sets wflags, leaves valid Z-flag
 						; 0 = not found, -1 = normal, 1 = immediate
 		poptos
 		brne PC+2				; valid Z-flag by FIND
@@ -3097,7 +3283,7 @@ ICOMPILE_1:
 ICOMPILE_2:
 		sbrs FLAGS1,fLIT
 		  rjmp ICOMPILE_00
-							; optimize when LIT is preceeding
+								; optimize if LIT is preceeding
 .if optimizingCOMPILER == 0
 
 			ldi t1, HIGH((AND_<<1) + PFLASH)
@@ -3129,12 +3315,12 @@ ICOMPILE_2:
 			rjmp ICLRFLIT
 
 .elif optimizingCOMPILER == 1
-/*
-	ldi t1,HIGH(FLASH_HI)		; LIT-optimization for kernel words only
-	cpi ZL, LOW(FLASH_HI)
-	cpc ZH,t1
-	brcs no_opt
-*/
+
+			ldi t1,HIGH(FLASH_HI)		; LIT-optimization for kernel words only
+			cpi ZL, LOW(FLASH_HI)
+			cpc ZH,t1
+			  brcs no_opt
+
 			ldi16 Z,(optTAB*2)
 			ldi t4,optTAB_count
 	optLoop:
@@ -3144,7 +3330,7 @@ ICOMPILE_2:
 			  cpc tosh,t1
 			    breq foundOpt
 			dec t4
-			brne optLoop			; 12 ticks per entry -> 350 for optTAB_count=29
+			brne optLoop			; 12 ticks per entry -> 375 for optTAB_count=31
 	no_opt:	  rjmp ICOMPILE_00		; -> go on with no opt found
 	
 	foundOpt:
@@ -3158,19 +3344,21 @@ ICOMPILE_2:
 		fO_yyy:
 			cpi t4,PEEPROMcheck
 			brcc fO_xxx
-			  in t1,litbuf1			; @ c@ ! c!
-			  cpi t1,HIGH(PEEPROM)	; ..for ram access only (lit.h < PEEPROM)
-			  brcc ICOMPILE_00		; -> go on with no opt
+			  in t1,litbuf1			; optimize '@', 'c@', '!', 'c!'
+			  cpi t1,HIGH(PEEPROM)	; ..for ram access only (lit.1 < PEEPROM)
+			    brcc no_opt			; -> go on with no opt
+			  sbiw Z,8
 
 		fO_xxx:
-			adiw Z,(optTAB_count*2-2)
+			subi ZL, LOW(-(optTAB_count*2-2))
+			sbci ZH,HIGH(-(optTAB_count*2-2))
 			lpm t0,Z+				; read address of .... opt routine
 			lpm t1,Z+
 			movw Z,t1t0
 			icall					; call opt routine
 			rjmp ICLRFLIT			; clear fLIT and f2LIT, go on parsing
 
-	.equ optTAB_count = 29
+	.equ optTAB_count = 33
 	.equ WORDIC_check =  7
 	.equ PEEPROMcheck = WORDIC_check + 4
 
@@ -3194,10 +3382,12 @@ ICOMPILE_2:
 			fdw MCLR
 			fdw MTST
 			fdw MTSTZ
-;			fdw MSTORE
-;			fdw MCSTORE
+			fdw MSTORE
+			fdw MCSTORE
+			fdw MFETCH
+			fdw MCFETCH
 		;.equ PEEPROMcheck = WORDIC_check + 4
-			fdw STORE				; words requiring an address check 'below PEEPROM?'
+			fdw STORE				; words requiring an address check 'in RAM?'
 			fdw CSTORE
 			fdw FETCH
 			fdw CFETCH
@@ -3228,13 +3418,16 @@ ICOMPILE_2:
 			.dw MCLRC_
 			.dw MTSTC_
 			.dw MTSTZC_
-;			.dw STOREC_
-;			.dw CSTOREC_
-		; PEEPROMcheck ...
+
 			.dw STOREC_
 			.dw CSTOREC_
 			.dw FETCHC_
 			.dw CFETCHC_
+		; PEEPROMcheck ...
+			;.dw STOREC_		; same as above
+			;.dw CSTOREC_
+			;.dw FETCHC_
+			;.dw CFETCHC_
 		; WORDIC_check - no entries needed
 .else .error "illegal value: optimizingCOMPILER"
 .endif
@@ -3293,91 +3486,6 @@ IUNKNOWN:
 		rjmp QABORTQ_0			; never returns & resets the stacks
 
 
-		fdw		TICKStoNEXT_L
-; NUMBER?	( c-addr --     n  1 ) single
-;			(		 -- dl dh  2 ) double
-;			(		 -- c-addr 0 ) if convert error
-NUMBERQ_L:
-		.db		NFA|7,"number?"
-NUMBERQ:
-		duptos					; a a  (for the 'not a number'-case)
-		st -Y,r_zero
-		st -Y,r_zero
-		st -Y,r_zero
-		st -Y,r_zero			; a 0 0 a
-		movw X,TOP
-		ld tosl,X+
-		clr tosh				; a 0 0 n	X: a+1
-		ld t0,X				; inline 'sign?'
-		subi t0,'+'
-		  breq isSign
-		cpi t0,2				; '-'
-		  breq isSign
-		clr t0
-		rjmp prefix
-isSign:
-		  sbiw TOP,1			; a 0 0 n-1
-		  adiw X,1				;			X: a+1
-prefix:
-		push t0					; save sign
-
-		movw Z,UP				; get current base
-		sbiw Z,(-ubase)
-		ld ah,Z
-
-		ld t0,X					; check for base-prefix
-		subi t0,'#'
-		  breq baseQ_dec		; '#' (=0)
-		cpi t0,2
-		  breq baseQ_bin		; '%' (=2)
-		  brcc BASEQ1			; no prefix
-baseQ_hex:						; '$' (=1)
-		subi t0,-5
-baseQ_dec:
-		subi t0,-10
-
-baseQ_bin:
-		mov ah,t0				; set temporary base (from prefix)
-		sbiw TOP,1				; a 0 0 n-1
-		adiw X,1				;			X: a+1
-BASEQ1:
-		push_X					; a 0 0 a' n'
-		rcall TONUMBER_0		; leaves valid Z-flag
-		poptos					; a ud.l ud.h a' 
-		  brne QNUM_ERR
-
-		sbiw TOP,1				; read last char from buf
-		rcall CFETCH_A			; a ud.l ud.h c
-
-		cpi tosl,'.'			; check for 'double'-sign
-		poptos					; a ud.l ud.h
-		pop t0					;				t0: sign
-		  brne QNUM_single
-;QNUM_double:
-		cpse t0,r_zero
-		  rcall DNEGATE
-		rcall ROT				; d.l d.h a
-		ldi tosl,2
-		ldi tosh,0
-		ret
-
-QNUM_single:
-		poptos					; a ud.l	t0: sign
-		cpse t0,r_zero
-		  rcall NEGATE
-		std Y+1,tosh			; d.l d.l
-		std Y+0,tosl
-		movw TOP,r_one			; d.l 1 - single precision number
-		ret
-
-QNUM_ERR:					; not a number
-		pop t0					; drop sign-flag from R
-		adiw Y,4
-		clr tosl				; a 0 (convert error)
-		clr tosh
-		ret
-
-
 ; DOCREATE						 code action of CREATE
 ; fetch the next cell from program memory to the parameter stack
 DOCREATE_L:
@@ -3410,6 +3518,104 @@ DOCOMMAXT:
 		rjmp COMMAXT
 
 
+		fdw		TICKStoNEXT_L
+; NUMBER?	( c-addr --     n  1 ) single
+;			(		 -- dl dh  2 ) double
+;			(		 -- c-addr 0 ) if convert error
+;                               string in RAM
+NUMBERQ_L:
+		.db		NFA|7,"number?"
+NUMBERQ:
+		duptos					; ( a a )  (for the 'not a number'-case)
+		st -Y,r_zero
+		st -Y,r_zero
+		st -Y,r_zero
+		st -Y,r_zero			; ( a 0 0 a )
+		movw X,TOP
+		ld tosl,X+
+		clr tosh				; ( a 0 0 u )	X: a+1
+		ld t0,X				; inline 'sign?'
+		subi t0,'+'
+		  breq isSign
+		cpi t0,2				; '-'
+		  breq isSign
+		clr t0
+		rjmp prefix
+isSign:
+		  sbiw TOP,1			; ( a 0 0 u-1 )
+		  adiw X,1				;				X: a+1
+prefix:
+		push t0					; save sign
+
+		movw Z,UP				; get current base
+		sbiw Z,(-ubase)
+		ld ah,Z
+
+		ld t0,X					; check for base-prefix
+		subi t0,'#'
+		  breq baseQ_dec		; '#' (=0)
+		cpi t0,2
+		  breq baseQ_bin		; '%' (=2)
+		  brcc BASEQ1			; no prefix
+baseQ_hex:						; '$' (=1)
+		subi t0,-5
+baseQ_dec:
+		subi t0,-10
+
+baseQ_bin:
+		mov ah,t0				; set temporary base (from prefix)
+		sbiw TOP,1				; ( a 0 0 u-1 )
+		adiw X,1				;				X: a+1
+BASEQ1:
+		rcall TONUMBER_0		; ( a ud.l ud.h a' 0/u' )	X: a'	valid Z-flag
+		  brne QNUM_ERR
+
+		adiw Y,2				; ( a ud.l ud.h 0 )			X: a'
+		ld tosl,-X				; read last char from buf (in RAM)
+
+		cpi tosl,'.'			; check for 'double'-sign
+		poptos					; ( a ud.l ud.h )
+		pop t0					;				t0: sign
+		  brne QNUM_single
+;QNUM_double:
+		cpse t0,r_zero
+		  rcall DNEGATE
+		rcall ROT				; ( d.l d.h a )
+		ldi tosl,2				; ( d.l d.h 2 )	- double precision number
+		ldi tosh,0
+		ret
+
+QNUM_single:
+		poptos					; ( a ud.l )	t0: sign
+		cpse t0,r_zero
+		  rcall NEGATE
+		std Y+1,tosh			; ( d.l d.l )
+		std Y+0,tosl
+		movw TOP,r_one			; ( d.l 1 ) 	- single precision number
+		ret
+
+QNUM_ERR:					; not a number
+		pop t0					; drop sign-flag from R
+		adiw Y,6
+		clr tosl				; ( a 0 ) 		- not a number
+		clr tosh
+		ret
+
+
+;.equ partlen = strlen(partstring)
+.equ datelen = strlen(DATE)
+
+		fdw		WDON_L
+VER_L:
+		.db		NFA|3,"ver"
+VER:
+		rcall XSQUOTE
+		;        123456789012345678901234567890123456    7
+		;.db 37," OptiForth 5.6d ATmega328 dd.mm.yyyy",0xd
+		.db 27+datelen," OptiForth 5.6d ATmega328 ",DATE,0xd		;partstring
+		rjmp TYPE
+
+
 		fdw		ZEROIF_L
 ; .st ( -- )					output a string with current data section and current base info
 ;	base @ dup decimal <#  [char] , hold #s  [char] < hold #> type 
@@ -3423,7 +3629,7 @@ DOTSTATUS:
 ;DOTBASE:					; ++++ begin inline DOTBASE ++++
 		movw Z,UP
 		sbiw Z,(-ubase)
-		ld t1, Z
+		ld t1, Z				; base in t1
 		ldi t0,'$'				; hex
 		cpi t1,0x10
 		  breq DOTBASE_done
@@ -3483,8 +3689,8 @@ DTE_wait: sbic EECR,EEWE	rjmp DTE_wait	; EEPROM ready?
 			out EECR,t1
 			sbi EECR,EEWE
 			out_ SREG,t0
-		  .if DEBUG_FLASH == 1	; write a '+' for every changed byte
-				ldi t0,'+'
+		  .if DEBUG_FLASH == 1
+				ldi t0,'+'		; write a '+' for every changed byte
 			DF_wait:
 				  in_ t1,UCSR0A
 				  sbrs t1,UDRE0	; USART0 Data Register Empty
@@ -3505,7 +3711,7 @@ DP_TO_RAM:
 
 DTR_wait: sbic EECR,EEWE     rjmp DTR_wait	; EEPROM ready?
 
-		out EEARH,ZH
+		  out EEARH,ZH
 DP_TO_RAM_loop:
 		  out EEARL,ZL
 		  out EECR,r_one		; (1<<EERE)
@@ -3546,68 +3752,6 @@ RSHIFT1:
 		rjmp RSHIFT1
 
 
-		fdw		FLASH_L
-FALSE_L:
-		.db		NFA|INLINE4|5,"false"
-FALSE_:							; put 0000 (FALSE) on data stack
-ZERO:
-		pushtos
-;FALSE_pushed:
-		clr tosl
-		clr tosh				; 4 / 6
-		ret
-
-
-		fdw		TUCK_L
-TRUE_L:
-		.db		NFA|INLINE4|4,"true",0xff
-;TRUE_:							; put ffff (TRUE) on data stack
-		pushtos
-;TRUE_pushed:
-NEQUAL_noMatch:
-		ser tosl
-		ser tosh				; 5 / 7
-SHIFT_ret:
-		ret
-
-
-		fdw		OR_L
-; N= ( c-addr nfa -- n )		compare strings
-;					 0    ) s1==s2
-;                    ffff ) s1!=s2
-; N= is specificly used for finding dictionary entries
-; it can also be used for comparing strings shorter than 16 characters,
-; but the first string must be in RAM and the second in program memory (FLASH).
-NEQUAL_L:
-		.db		NFA|2,"n=",0xff
-;NEQUAL:
-		pop_X
-NEQUAL_0:
-		movw Z,TOP
-		sub_pflash_z
-		ld tosh,X+
-		lpm tosl,Z+
-		mov t0,tosl				; save length+flags for caller
-		andi tosl,0x0f			; length
-		cp tosl,tosh
-		  brne NEQUAL_noMatch	; Z flag valid
-
-NEQUAL_loop:					; length in tosh as loop count
-		  lpm tosl,Z+
-		  ld t1,X+
-		  cp t1,tosl
-			brne NEQUAL_noMatch
-		dec tosh
-		brne NEQUAL_loop
-NEQUAL_match:					; Z flag valid
-		clr tosl				; n=0: s1==s2
-		;clr tosh				; (already there)
-		ret
-
-;NEQUAL_noMatch:
-;		rjmp TRUE_pushed		; n=ffff: s1!=s2
-
-
 		fdw		EEPROM_L
 ; DIGIT? ( c -- n f )			check char for beeing a valid digit (base < 0xd0)
 DIGITQ_L:
@@ -3628,6 +3772,19 @@ DIGITQ1:
 		sub tosl,tosh			; n < base -> C -> TRUE
 		sbc tosl,tosl
 		sbc tosh,tosh
+SHIFT_ret:
+		ret
+
+
+		fdw		FLASH_L
+FALSE_L:
+		.db		NFA|INLINE4|5,"false"
+FALSE_:							; put 0000 (FALSE) on data stack
+ZERO:
+		pushtos
+;FALSE_pushed:
+		clr tosl
+		clr tosh				; 4 / 6
 		ret
 
 
@@ -3639,20 +3796,20 @@ DIGITQ1:
 			sbrs FLAGS1,f2LIT
 			  rjmp MTSTZC_1LIT
 	MTSTZC_2LIT:
-			rcall IDP8MINUS			; leaves dpFLASH in X
-			movw TOP,X
+			rcall IDP8MINUS			; leaves dpFLASH in Z
+			movw TOP,Z
 			adiw TOP,4
 			rcall FETCH_A			; 'ldi tosl,mask'
-			cbr tosh,0xf0
+			andi tosh,0x0f
 			ori tosh,HIGH(0x7000)	; 'andi tosl,mask'
-			cbr tosl,0xf0			; 'andi t0  ,mask'
+			andi tosl,0x0f			; 'andi t0  ,mask'
 			rcall comp_lds_t0
-			rjmp ICOMMA_
+			rjmp ICOMMA
 
 	MTSTZC_1LIT:
 			rcall comp_lds_t0
 			ldi16 tos,0x2380		; 'and tosl,t0'
-			rcall ICOMMA_
+			rcall ICOMMA
 			pushtos
 			ldi16 tos,((DROP<<1) + PFLASH)
 			rjmp INLINE0
@@ -3730,7 +3887,7 @@ DIGITQ1:
 	MSETC_2LIT:						; ( addr -- )
 			rcall IHERE
 			sbiw TOP,4
-			rcall FETCH_A			;   'ldi tosl,<lit1.0>'
+			rcall FETCH				;   'ldi tosl,<lit1.0>'
 			cbr tosh,0x80			; ->'ori tosl,<lit1.0>'
 			cbr tosl,0xf0			; ->'ori t0  ,<lit1.0>'
 	comp_2LIT:
@@ -3777,36 +3934,117 @@ DIGITQ1:
 .endif
 
 
-		fdw		SPACE_L
-; SIGN? ( addr n -- addr' n' f )	get optional sign (n<0x100)
-;							+ leaves $0000 flag
-;							- leaves $0002 flag
-SIGNQ_L:
-		.db		NFA|5,"sign?"
-;SIGNQ:
-		 ldd ZL,Y+0				; addr
-		 ldd ZH,Y+1
-		 mov t0,tosl			; n
-		 pushtos				; OVER c@
+		fdw		DOTID_L
+; findi	( c-addr nfa -- c-addr 0 )	if not found
+;		(				xt     1 )	if immediate
+;		(				xt    -1 )	if normal
+; first in RAM, second in FLASH, Z-flag
+BRACFIND_L:
+kernellink_mid:
+		.db		NFA|3,"(f)"
+findi:
+findi_loop:
+		  ldd XL,Y+0			; c-addr -> X
+		  ldd XH,Y+1
+		  movw t3t2,TOP			; save NFA
+		  rcall NEQUAL_0		; leaves valid Z-flag and valid addr+1 in Z
+			breq findi_match
+		  movw Z,t3t2
+		  sbiw Z,2				; NFA -> LFA
+		  ;set					; (speed vs. size)
+		  ;rcall IFETCH			; 2 / 20..23
+		  sub_pflash_z
+		  cpse ZH,ibaseH
+		    rjmp F_loop_direct
+		  set
+		  rcall IFETCH_buf		; valid addr+1 in Z
+		  rjmp PC+3
+F_loop_direct:
+		    lpm tosl,Z+
+			lpm tosh,Z+			; 8 / 10..25
+		sbiw TOP,0				; LFA 0=?
+		brne findi_loop			; no -> valid new NFA -> loop
+findi_noMatch:
+		;sez
+		ret						; yes-> end of dict -> return
 
-		 ;call CFETCH_Zplus
-		 ld tosl,Z+				; in RAM
+findi_match:					; TOP = 0 
+						; #### dirty #### use of addr in Z
+		adiw Z,1				; 'aligned'
+		cbr ZL,1
+		add_pflash_z
+		std Y+1,ZH				; put CFA to NEXT
+		std Y+0,ZL
+		mov wflags,t0  			; COMPILE and INLINE flags for the compiler (loaded to t0 in NEQUAL)
+		sbiw TOP,1				; 'normal'		Z clear	N set
+		sbrc wflags,IMMEDbit
+		  adiw TOP,2			; ->'immediate'	Z clear N clear
+;;		clz
+		ret
 
-		 subi tosl,'+'
-		   breq SIGNQIS
-		 cpi tosl,2				; '-'
-		   breq SIGNQIS
-		 clr tosl
-		 ;ldi tosh,0x00			; (unchanged)
-		 ret
-SIGNQIS:
-		 std Y+3,ZH				; addr'
-		 std Y+2,ZL
-		 dec t0
-		 ;std Y+1,r_zero		; (unchanged)
-		 std Y+0,t0				; n'
-		 ;ldi tosh,0x00			; (unchanged)
-		 ret
+
+		fdw		TUCK_L
+TRUE_L:
+		.db		NFA|INLINE4|4,"true",0xff
+;TRUE_:							; put ffff (TRUE) on data stack
+		pushtos
+;TRUE_pushed:
+NEQUAL_noMatch:
+		ser tosl
+		ser tosh				; 5 / 7
+		ret
+
+
+		fdw		OR_L
+; N= ( c-addr nfa -- n )		compare strings
+;					 0    ) s1==s2
+;                    ffff ) s1!=s2
+; N= is specificly used for finding dictionary entries
+; it can also be used for comparing strings shorter than 16 characters,
+; but the first string must be in RAM and the second in program memory (FLASH).
+NEQUAL_L:
+		.db		NFA|2,"n=",0xff
+;NEQUAL:
+		pop_X
+NEQUAL_0:
+		movw Z,TOP
+		;clt					; (speed vs. size)
+		;rcall IFETCH			;  2 / 18..21
+		sub_pflash_z
+		cpse ZH,ibaseH
+		  rjmp N_0_direct
+		clt
+		rcall IFETCH_buf		; valid addr+1 in Z
+		sub_pflash_z
+		rjmp PC+2
+N_0_direct:
+		  lpm tosl,Z+			;  8 / 7..24
+		mov t0,tosl				; save length+flags for caller
+		andi tosl,0x0f			; length
+		ld tosh,X+
+		cp tosl,tosh
+		  brne NEQUAL_noMatch	; Z flag valid
+
+NEQUAL_loop:					; length in tosh as loop count
+		  ;clt					; (speed vs. size)
+		  ;rcall IFETCH			; 2+1 / 19..22
+		  cpse ZH,ibaseH
+		    rjmp N_loop_direct
+		  clt
+		  rcall IFETCH_buf		; valid addr+1 in Z
+		  sub_pflash_z
+		  rjmp PC+2
+N_loop_direct:
+		    lpm tosl,Z+			; 7 / 6..23
+		  ld t1,X+
+		  sub tosl,t1
+			brne NEQUAL_noMatch
+		dec tosh
+		brne NEQUAL_loop
+;NEQUAL_match:					; valid Z flag, valid addr+1 in Z
+		;clr tosl				; n=0: s1==s2
+		;clr tosh				; (already there)
+		ret
 
 
 		fdw		WITHIN_L
@@ -3824,14 +4062,12 @@ UMSLASHMOD:
 STARSLASH_L:
 		.db		NFA|3,"u*/"
 STARSLASH: 						; unsigned values only
-		push tosl				; divisor
-		push tosh
+		movw A,TOP				; divisor in A
 		poptos
-		rcall umstar0			; product.l in tos, product.h in t7:t6
-		pop t5
-		pop t4
-		pushtos
-		movw TOP,t7t6
+		rcall umstar0			; product.l in t5t4, product.h in t7:t6
+		push_t5t4
+		movw TOP,t7t6			; ( ud.l ud.h )
+		movw t5t4,A
 		rjmp udslashmod0		; ( ud'.l		ud'.h in t7:t6		rem in t3:t2 )
 
 
@@ -3988,13 +4224,6 @@ PLACE_twodupped:
 		rjmp CMOVE
 		 
 
-FETCH_A:
-		rjmp FETCH
-
-CFETCH_A:
-		rjmp CFETCH
-
-
 		fdw		RX0Q_L
 ; QUIT ( -- 	R: i*x -- )		interpret from kbd
 QUIT_L:
@@ -4009,7 +4238,7 @@ QUIT:
 		out SPL,t4
 		out SPH,t5
 		out_ SREG,t0
-		cbr FLAGS2,(1<<fSTATE)	; 'INTERPRET'
+		cbr FLAGS2,(1<<fSTATE)	; ''
 		ldi t0,4
 		out cse,t0				; 'RAM'
 QUIT0:  
@@ -4042,7 +4271,7 @@ SP_ok:
 			rcall SPACE_
 			rcall INTERPRET
 			sbrc FLAGS2,fSTATE
-		  rjmp QUIT1
+		  rjmp QUIT1			; 'COMPILE'? -> go on 
 
 		  rcall IFLUSH
 		  rcall DP_TO_EEPROM
@@ -4050,7 +4279,7 @@ SP_ok:
 		  .db   3," ok"
 		  rcall TYPE
 		  rcall PROMPT_
-		rjmp  QUIT0
+		rjmp QUIT0
 
 
 		fdw		REPEAT_L
@@ -4189,7 +4418,6 @@ IHERE_L:
 		.db		NFA|INLINE5|5,"ihere"
 IHERE:
 		 pushtos
-;IHERE_0:
 		 lds16 tos,dpFLASH		; 6 / 8
 		 ret
 
@@ -4382,15 +4610,15 @@ NONAME:
 SEMICOLON_L:
 		.db		NFA|IMMED|COMPILE|1,";"
 SEMICOLON:
-		cbr FLAGS2,(1<<fSTATE)	; LEFTBRAKET
+		cbr FLAGS2,(1<<fSTATE)	; LEFTBRAKET -> ''
 SEMICOLON_0:
 		sbrc FLAGS1,fTAILC
 		  rjmp ADD_RETURN_1
 		rcall IHERE
 		rcall MINUS_FETCH
 		movw t1t0,TOP
-		andi t1,0xf0
-		subi t1,0xd0
+		andi t1,0xf0			; check for 'rcall ..'
+		subi t1,0xd0			; NOT valid for more than 64 kB of FLASH 
 		  breq RCALL_TO_RJMP
 		poptos
 		rcall MINUS_FETCH
@@ -4418,7 +4646,7 @@ SWOP_STORE_Z:
 		rjmp ISTORE_Z
 
 ADD_RETURN:
-		adiw Y,2				; 2drop
+		adiw Y,2				; nip addr
 		rjmp ADD_RETURN_2
 ADD_RETURN_1:
 		pushtos
@@ -4430,7 +4658,7 @@ ICOMMA_:
 
 .if optimizingCOMPILER == 1
 	; recompile 'lit' ('pushtos  ldi16 tos,<lit>')
-	;..to 			  ('ldi16 <t1>,<lit>')
+	;..to 			  ('ldi16 t1t0,<lit>'), ('ldi16 X,>lit>') or ('ldi16 P,>lit>')
 
 	ldi16_t1t0_C_:
 			ldi t1,regt1t0			; -> t1:t0
@@ -4462,6 +4690,7 @@ MINUS_FETCH_L:
 MINUS_FETCH:
 		sbiw TOP,2
 		duptos
+FETCH_A:
 		rjmp FETCH
 
 
@@ -4507,56 +4736,6 @@ R0_:
 		ret
 
 
-		fdw		USLASHMOD_L
-; ticks ( -- u )				system ticks (0-ffff) in milliseconds
-TICKS_L:
-		.db		NFA|INLINE|5,"ticks"
-TICKS:  
-		pushtos
-TICKS_0:
-		movw TOP,MS_COUNT		; 3 / 5
-		ret
-
-
-		fdw		USSMOD_L
-; ticks= ( u -- t )				leave time in ms from u to actual ms_count
-TICKSCOMPUTE_L:
-		.db		NFA|INLINE4|6,"ticks=",0xff
-TICKSCOMPUTE:
-		movw t1t0,TOP
-		movw TOP,MS_COUNT
-		sub tosl,t0
-		sbc tosh,t1				; 4 / 4
-		ret
-
-	
-		fdw		TURNKEY_L
-; ticks>n  ( x -- u x )			push system ticks to NEXT
-TICKStoNEXT_L:
-		.db		NFA|INLINE|7,"ticks>n"
-TICKStoNEXT:
-		movw t1t0,MS_COUNT
-		push_t1t0				; 3 / 5
-		ret
-
-
-		.dw		0
-; us ( u -- )					pause for u microseconds
-;	begin 1- dup while waste9 waste2 repeat drop ;
-; for ATmega328/p with 16 MHz
-MICROS_L:
-		.db		NFA|2,"us",0xff
-MICROS:							; CPU ticks
-		  sbiw TOP,1			; 2(2)
-			breq MICROS_xxx		; 1(2)
-		  rcall waste9			; 9				(does: 'sbiw TOP,2')
-		  adiw TOP,2			; 2 
-		rjmp MICROS				; 2______________16 ticks (= 1 us) per loop
-MICROS_xxx:
-		poptos					;  (4)
-		ret						;(4+4) call/ret__16 ticks for entry+exit
-
-
 		fdw		BEGIN_L
 ALLOT_L:
 		.db		NFA|5,"allot"
@@ -4573,7 +4752,7 @@ ALLOT_0:
 ALLOT_1:
 		 st -Z,tosh
 		 st -Z,tosl				;		  !
-		 rjmp DROP
+		 rjmp DROP_A
 
 		
 		fdw		IRQ_SEMI_L
@@ -4582,9 +4761,6 @@ ALLOT_1:
 TWOFETCH_L:
 		.db		NFA|2,"2@",0xff
 TWOFETCH:
-;		rcall FETCHPP
-;		rcall SWOP
-;		rjmp  FETCH
 		rcall FETCH				; leaves a-addr+2 in Z
 		pushtos
 		rjmp FETCH_Zplus
@@ -4605,6 +4781,142 @@ SHB0:
 		 rjmp STORE_Z			; store tosl to (Z)
 
 
+;*************************************************************
+; Coded for max 256 byte pagesize !
+; if ((ibaselo != (iaddrlo & ~(PAGESIZEB-1))) | (ibaseH != iaddrh) | (ibaseu != iaddru))
+;   if (idirty)
+;       writebuffer_to_imem
+;   endif
+;   fillbuffer_from_imem
+;   ibaselo = iaddrlo & ~(PAGESIZEB-1)
+;   ibasehi = iaddrhi
+;endif
+IFILL_BUFFER:					; org address in Z
+		sts iaddrH,ZH
+		sts iaddrL,ZL
+		sbic FLAGS3, idirty
+		  rcall IWRITE_BUFFER
+		lds ZL,iaddrL
+		lds ZH,iaddrH
+		andi ZL,~(PAGESIZEB-1)
+		movw IBASE,Z
+	.ifdef RAMPZ
+	    	lds t0,iaddru
+	    	sts ibaseu,t0
+	    	out_ RAMPZ, t0
+	.endif
+IFILL_BUFFER_1:					; fill buffer from FLASH
+;		ldi t0,0xff
+		ldi16 X,ibuf				; ibuf on page boundary !!
+IFILL_BUFFER_2:
+		  lpm_ t1,Z+
+		  st X+,t1
+;		  and t0,t1					; check for programmed bytes
+		  cpi XL, LOW(ibuf+PAGESIZEB)	; ibuf on page boundary !!
+		brne IFILL_BUFFER_2
+		
+;		cbi FLAGS3,fFLASH_PAGE_CLEAR
+;		cpi t0,0xff
+;		brne PC+2
+;		  sbi FLAGS3,fFLASH_PAGE_CLEAR	; all bytes in page = 0xff -> don't need to erase page
+
+	  .ifdef RAMPZ
+			ldi t0,RAMPZV
+			out_ RAMPZ,t0
+	  .endif
+		lds ZL,iaddrL
+		ret
+
+IWRITE_BUFFER:
+	.if OPERATOR_UART == 0
+	  .if U0FC_TYPE == 0
+	;  .elif U0FC_TYPE == 1
+	;		sbrs FLAGS2,ixoff_tx0
+	;		  rcall XXOFF_TX0
+	;  .elif U0FC_TYPE == 2
+	;		sbi_ U0RTS_PORT, U0RTS_BIT
+	  .else .error "illegal value: U0FC_TYPE"
+	  .endif
+	.else  ;; UART1
+	  .if U1FC_TYPE == 1
+			rcall   DOLIT
+			.dw     XOFF
+			rcall    EMIT
+	  .elif U1FC_TYPE == 2
+			sbi_    U1RTS_PORT, U1RTS_BIT
+	  .endif
+	.endif
+
+	.ifdef RAMPZ
+	    	lds t0,ibaseu
+	    	out_ RAMPZ,t0
+	.endif
+
+IWR_BUF_waitEE:	 sbic EECR,EEPE		rjmp IWR_BUF_waitEE	; EEPROM write in progress?
+
+	.if DEBUG_FLASH == 1
+		 	pushtos
+		 	movw TOP,MS_COUNT
+	.endif
+		
+		push R20				; pl (boot loader compatibility)
+		ldi16 X,ibuf
+		rcall WRITE_FLASH_PAGE	; leaves Z = ibase
+		pop R20
+		
+		ldi t0,LOW(PAGESIZEB-1)
+		ldi16 X,ibuf			; read back and check
+IWRITE_BUFFER2:
+		  lpm_ R0,Z+
+		  ld R1,X+
+		  cpse R0,R1
+		    rjmp WARM_0    		; reset if write error
+		subi t0,1
+		brcc IWRITE_BUFFER2
+
+		cbi FLAGS3,idirty
+		mov ibaseH,t0			; 0xff -> 'ibuf empty'-marker
+
+	.ifdef RAMPZ
+			sts ibaseu,t0		; 0xff
+			ldi t0,RAMPZV
+			out_ RAMPZ,t0
+	.endif
+
+	.if OPERATOR_UART == 0
+  	  .if U0FC_TYPE == 0
+	;  .elif U0FC_TYPE == 1
+	;		 rcall XXON_TX0
+	;  .elif U0FC_TYPE == 2
+	;		cbi_ U0RTS_PORT,U0RTS_BIT
+	  .else .error "illegal value: U0FC_TYPE"
+	  .endif
+	.else
+	  .if U1FC_TYPE == 1
+			rcall   DOLIT
+			.dw     XON
+			rcall    EMIT
+	  .elif U1FC_TYPE == 2
+			cbi_    U1RTS_PORT, U1RTS_BIT
+	  .endif
+	.endif
+
+	.if DEBUG_FLASH == 1
+		 	 sub tosl,ms_countL		; write time [ms] as single ASCII to operator UART
+		 	 neg tosl
+		 	 subi tosl,-'0'
+		.if   OPERATOR_UART == 0
+			 	rjmp TX0_quick
+		.elif OPERATOR_UART == 1
+			 	rjmp TX1_quick
+		.else 
+			 	rjmp DROP
+		.endif
+	.else	; (DEBUG_FLASH <> 1)
+			 ret
+	.endif
+
+
 		fdw		INTERPRET_L
 IMMEDIATE_L:
 		.db		NFA|9,"immediate"
@@ -4617,7 +4929,7 @@ pre_SHB:
 
 		fdw		LITERAL_L
 INLINED_L:
-		.db		NFA|7,"inlined" ; 
+		.db		NFA|7,"inlined"
 INLINED:
 		 ldi t1,INLINE
 		 rjmp pre_SHB
@@ -4638,76 +4950,16 @@ DOTID:
 ;	SWAP OVER ! CELL+ ! ;
 TWOSTORE_L:
 		.db		NFA|2,"2!",0xff
-TWOSTORE:
+TWOSTORE:				; #### keep with 'XSQUOTE' for 'see' o work ####
 		rcall TUCK
 		adiw TOP,2
 		rcall STORE
 		rjmp STORE
 
 
-		fdw 	TIBSIZE_L
-; SQR  ( u -- u^2 )				16-bit square
-; valid results for u < 256 only
-SQUARE_L:
-		.db		NFA|INLINE|3,"sqr"
-;SQUARE:
-		mul tosl,tosl
-		movw TOP,R1:R0			; 2 / 3
-		ret
-
-
-		fdw		SWOP_L
-; SQRT  ( u -- u' )				16-bit square root
-; no rounding, no remainder on stack
-SQUAREROOT_L:
-		.db		NFA|4,"sqrt",0xff
-;SQUAREROOT:
-		movw t1t0,TOP
-		clr tosl
-		ldi tosh,0x80
-SQRT_loop:
-		  eor tosl,tosh
-		  mul tosl,tosl
-		  cp  t0,R0
-		  cpc t1,R1
-		  brcc PC+2
-			eor tosl,tosh
-		lsr tosh
-		brne SQRT_loop
-
-		ret
-
-
-		fdw		PLUS_L
-; 								16 x 16 bit to 16 bit multiply
-STAR_L:
-		.db		NFA|INLINE5|1,"*"
-STAR: 
-		pop_t1t0
-STAR_0:
-		movw t7t6,TOP
-		mul t0,t6
-		movw TOP,R1:R0
-		mul t1,t6
-		add tosh,R0
-		mul t0,t7
-		add tosh,R0				;  9 / 14
-		ret						;  7 / 10 for  'LIT *'
-
-.if optimizingCOMPILER == 1
-	cSTAR_0:						; inline code for 'cLIT *'
-			 movw t7t6,TOP
-			 mul t0,t6
-			 movw TOP,R1:R0
-			 mul t0,t7
-			 add tosh,R0			;  5 / 7
-			 ret
-.endif
-
-
 ; (S" ( -- c-addr u )			run-time code for S"
 		.db      NFA|3,"(s",0x22	; just for 'see' to work
-XSQUOTE:				; #### do NOT change distance to 'STAR:' for 'see' to work ####
+XSQUOTE:				; #### do NOT change distance to 'TWOSTORE' for 'see' to work ####
 		m_pop_zh
 		pop ZH
 		pop ZL
@@ -4835,19 +5087,17 @@ TYPE_2:
 DUMP_L:
 		.db		NFA|4,"dump",0xff
 DUMP:
-		ldi t0,4
-dump_0:
-		  lsr tosh
-		  ror tosl
+		ldi t0,4				; count DIV 16 -> line count
+dump_0:	  lsr tosh	  ror tosl
 		dec t0
 		brne dump_0
 
 		movw Z,UP
 		sbiw Z,(-ubase)
 		ld t4,Z
-		cpi t4,16
+		cpi t4,16				; base < 16 ?
 		brcc PC+2
-		  sbr FLAGS2,(1<<fDUMPxxx)	; dump 3-digit numbers for base<16
+		  sbr FLAGS2,(1<<fDUMPxxx)	; yes -> dump 3-digit numbers
 		movw X,TOP				; save line count
 		poptos
 DUMP_loop:  
@@ -4862,7 +5112,7 @@ DUMP_loop:
 			inc tosl
 		  rcall UDOTR			; type line address
 
-		  ldi XL,15				; byte loop count	(hex dump)
+		  ldi XL,15				
   DUMP2:
 			push XL				; type 16 byte values
 			rcall CFETCHPP
@@ -4872,13 +5122,13 @@ DUMP_loop:
 			sbrc FLAGS2,fDUMPxxx
 			  inc tosl
 			rcall UDOTR
-			pop XL				; byte loop count
+			pop XL
 		  subi XL,1
 		  brcc DUMP2
   
 		  sbiw TOP,16
 		  ldi t0,16
-		  mov t8,t0				; byte loop count	(ASCII dump)
+		  mov t8,t0
   DUMP4:
 			rcall CFETCHPP		; type 16 ASCII char
 			rcall TO_PRINTABLE
@@ -4892,8 +5142,7 @@ DUMP_loop:
 		brcc DUMP_loop
 
 		cbr FLAGS2,(1<<fDUMPxxx)
-		;rjmp DROP
-		ldi tosl,0x0d			; CR
+		ldi tosl,CR_
 		rjmp EMIT
 
 
@@ -4921,13 +5170,13 @@ IDP6MINUS:
 IDP8MINUS:
 		ldi t0,8
 IDPMINUS:
-		ldi16 Z,dpFLASH
-		ld XL,Z+
-		ld XH,Z+
-		sub XL,t0
-		sbc XH,r_zero
-		st -Z,XH
-		st -Z,XL
+		ldi16 X,dpFLASH
+		ld ZL,X+
+		ld ZH,X+
+		sub ZL,t0
+		sbc ZH,r_zero
+		st -X,ZH
+		st -X,ZL				; 8 / 12
 		ret
 
 
@@ -5018,7 +5267,7 @@ ZEROIF:
 		fdw		EMIT_L
 ; ELSE ( adrs1 -- adrs2 )		branch for IF..ELSE
 ; leave adrs2 of bra instruction and store breq in adrs1
-; leave adress of branch instruction and FALSE flag on stack
+; leave address of branch instruction and FALSE flag on stack
 ELSE_L:
 		.db		NFA|IMMED|COMPILE|4,"else",0xff
 ELSE_:
@@ -5076,9 +5325,10 @@ ZEROUNTIL_L:
 		.db		NFA|IMMED|COMPILE|6,"0until",0xff
 ZEROUNTIL:
 		 mov t4,r_one			; b001 for Z-flag
+		 cbr FLAGS1,(1<<izeroeq)
 		 ;rjmp UNTILflag
 		 						; branch on cpu-flag - NO stack action
-;UNTILflag:
+UNTILflag:
 		 sbr FLAGS1,(1<<fTAILC)	; prevent tail jump  optimization
 		 lds t0,dpFLASH			; IHERE
 		 ;lds t1,dpFLASH+1		; not needed ...
@@ -5092,7 +5342,20 @@ ZEROUNTIL:
 		 lsl tosl	rol tosh	; distance in words (shifted left by 3) to be inserted into 'br..'-command
 		 or tosl,t4				; which flag
 		 ori tosh,HIGH(0xf400)	; branch on cleared
+		 sbrc FLAGS1,izeroeq
+		   cbr tosh,0x04		; ..on set
 		 rjmp ICOMMA
+
+
+		fdw		QABORT_L
+; 1until   ( adrs -- )      backward branch on Z-flag - NO stack action
+; ########## small loops ONLY ##########
+ONEUNTIL_L:
+		.db		NFA|IMMED|COMPILE|6,"1until",0xff
+ONEUNTIL:
+		 mov t4,r_one			; b001 for Z-flag
+		 sbr FLAGS1,(1<<izeroeq)
+		 rjmp UNTILflag
 
 
 		fdw		ALIGN_L
@@ -5142,7 +5405,7 @@ REPEAT_:
 INLINE_L:
 		.db      NFA|IMMED|COMPILE|6,"inline",0xff
 ;INLINE
-		cbr FLAGS1,(1<<izeroeq)|(1<<idup)|(1<<icarryeq)
+		cbr FLAGS1,(1<<izeroeq)|(1<<idup)|(1<<icarryeq)|(1<<fLIT)|(1<<f2LIT)
 		rcall TICK
 		rjmp INLINE0
 
@@ -5285,32 +5548,6 @@ XLOOP:
 		  brcs PC+2
 		ret
 
-		fdw		outerINDEX_L
-; i	( -- index  R: limit index -- limit index )
-innerINDEX_L:
-		.db		NFA|0x20|1,"i"
-innerINDEX:			; ++++ must be inlined ++++
-		pushtos
-		in ZL,SPL
-		in ZH,SPH
-		ldd tosl,Z+2			; index
-		ldd tosh,Z+1			; 6 / 10
-		ret
-
-
-		fdw		LEFTBRACKET_L
-; j ( -- index'  R: limit' index' limit index -- limit' index' limit index )
-outerINDEX_L:
-		.db		NFA|0x20|1,"j"
-outerINDEX:			; ++++ must be inlined ++++
-		pushtos
-		in ZL,SPL
-		in ZH,SPH
-		ldd tosl,Z+6			; index'
-		ldd tosh,Z+5			; 6 / 10
-		ret
-
-
 		fdw		OVER_L
 ; NEXT ( bc-addr bra-addr -- )
 NEXT_L:
@@ -5327,7 +5564,6 @@ NEXT:
 		sbc tosh,t1
 		sbiw TOP,2
 		rjmp RJMPC
-
 
 ; (next) decrement top of return stack
 ;		.db		NFA|0x20|6,"(next)",0xff
@@ -5517,7 +5753,7 @@ DGREATER:
 ;  dup flash dp ! @ latest ! ram
 FORGET_L:
 		.db		NFA|6,"forget",0xff
-FORGET:
+;FORGET:
 		rcall BL_WORD
 		rcall LATEST_
 		rcall FETCH
@@ -5537,9 +5773,9 @@ FORGET:
 		fdw		FORGET_L
 ; marker ( "name" -- )
 MARKER_L:
-;lastword:
+lastword:
 		.db		NFA|6,"marker",0xff
-MARKER:
+;MARKER:
 		out cse,r_zero			; 'flash'
 		rcall CREATE
 		rcall DOLIT 
@@ -5553,12 +5789,8 @@ MARKER:
 		out cse,t0				; 'ram'
 		rcall XDOES_pushed
 		rcall DODOES
-;		rcall INI
-; ini ( -- a-addr )				ini variable contains the user-start xt
-; In RAM
-INI:	pushtos
+		pushtos
 		ldi16 tos,dpSTART
-
 TEN_CMOVE:
 		rcall DOLIT
 		.dw 10
@@ -5587,6 +5819,28 @@ TEN_CMOVE:
 			ret
 .endif
  
+; @+   ( addr -- addr+2 n )
+;   dup 2+ swap @ ;
+		fdw		L_FETCH_P
+FETCHPP_L:
+		.db		NFA|2,"@+",0xff
+FETCHPP:
+		rcall FETCH
+		push_Z
+		ret
+
+
+; c@+  ( addr -- addr+1 n )
+;   dup 1+ swap c@ ;
+		fdw		COMMAXT_L
+CFETCHPP_L:
+		.db		NFA|3,"c@+"
+CFETCHPP:
+		rcall CFETCH
+		push_Z
+		ret
+
+
 .if CPU_LOAD == 1
 			fdw		LOOP_L
 	LOAD_L:
@@ -5732,7 +5986,7 @@ TEN_CMOVE:
 
 
 ; unsigned 16/16 -> 32 multiply
-umstar0:						; product.l in tos, product.h in t7:t6
+umstar0:						; product.l in t5t4, product.h in t7:t6
 		 pop_t1t0
 umstar0_0:
 		 mul tosl,t0
@@ -5747,8 +6001,7 @@ umstar0_0:
 		 add t5,R0
 		 adc t6,R1
 		 adc t7,r_zero
-		 movw TOP,t5t4
-		 ret					; 16 / 21+4
+		 ret					; 15 / 20+4
 
 
 		fdw		ALIGNED_L
@@ -5788,31 +6041,32 @@ DODOES:
 
 ; rx0 complete interrupt
 RX0_ISR:
+		in_ SREG_intSafe,SREG
+		push t0
 		in_ t0,UDR0_
-	  .if (OPERATOR_UART == 0) && (CTRL_O_WARM_RESET == 1)
-		  cpi t0,0x0f
-		  brne PC+2
-		    rjmp RESET_
-	  .endif
-		lds t1,rbuf0_lv			; rbuf0 size fix to 0x100
-		inc t1
+
+		cpi t0,CTRL_O
+		brne PC+2
+		  rjmp RESET_
+
+		lds ZL,rbuf0_lv			; rbuf0 size fix to 0x100
+		inc ZL
 		  breq RX0_OVF
-		sts rbuf0_lv,t1
-		lds XL,rbuf0_wr
-		ldi XH,HIGH(rbuf0)		; rbuf0 on page boundary!!
-		st X+,t0
-		sts rbuf0_wr,XL
-		rjmp OF_ISR_EXIT
+		sts rbuf0_lv,ZL
+		lds ZL,rbuf0_wr
+		ldi ZH,HIGH(rbuf0)		; rbuf0 on page boundary!!
+		st Z+,t0
+		sts rbuf0_wr,ZL
+RX0_ISR_EXIT:
+		pop t0
+		out_ SREG,SREG_intSafe
+		movw Z,intSafe16
+		reti
 
 RX0_OVF:
 		ldi ZH,'|'
 		rcall TX0_SEND
-		rjmp OF_ISR_EXIT
-
-
-	.ifdef UCSR1A
-	  RX1_ISR:		rjmp RX1_ISRR
-	.endif
+		rjmp RX0_ISR_EXIT
 
 
 		fdw		ABS_L
@@ -5849,7 +6103,7 @@ DEFER_DOES:
 		rjmp FEXECUTE
 
 
-		fdw		MPLUS_L
+		fdw		MSTORE_L
 IS_L:
 		.db		NFA|IMMED|2,"is",0xff
 IS:
@@ -5936,31 +6190,8 @@ TX0_SEND:
 		ret
 
 
-.if IDLE_MODE == 0
-SLEEP_:
-	  .ifdef SMCR				; buffers empty -> enable sleep mode
-		out_ SMCR,r_one
-	  .else
-			in_ t0,MCUCR
-			sbr t0,(1<<SE)
-			out_ MCUCR,t0
-	  .endif
-
-		sleep					; enter sleep mode 'IDLE'
-
-	  .ifdef SMCR				; disable sleep mode
-		out_ SMCR,r_zero
-	  .else
-			in_ t0,MCUCR
-			cbr t0,(1<<SE)
-			out_ MCUCR,r_zero
-	  .endif
-		ret
-.endif
-
-;***************************************************
-; RX0    -- c    get character from the UART0 buffer
 		fdw		STOD_L
+; RX0    -- c    get character from the UART0 buffer
 RX0_L:
 		.db		NFA|3,"rx0"
 RX0_:
@@ -5971,27 +6202,6 @@ RX0_:
 		  subi XL,1
 			brcc RX0_1
 		  out_ SREG,t0
-		  						; buffer empty -> switch off LED
-		  sbrs FLAGS2,fLOADled	; .. if it is NOT in use by CPU_LOAD_LED
-			.if CPU_LOAD_LED_POLARITY == 1
-				cbi_ CPU_LOAD_PORT,CPU_LOAD_BIT
-			.else
-				sbi_ CPU_LOAD_PORT,CPU_LOAD_BIT
-			.endif
-		  
-		  .if U0FC_TYPE == 0
-		;  .elif U0FC_TYPE == 1	; .. send 'XON' if this kind of handshake is enabled
-		;		sbrc FLAGS2,ixoff_tx0
-		;		  rcall XXON_TX0
-		;  .elif U0FC_TYPE == 2	; .. set 'RTS' if this kind of handshake is enabled
-		;		cbi_ U0RTS_PORT, U0RTS_BIT
-		  .else .error "illegal value: U0FC_TYPE"
-		  .endif
-
-		.if IDLE_MODE == 0
-		  sbrc FLAGS2,fSINGLE
-			rcall SLEEP_
-		.endif
 		rjmp RX0_
 
 RX0_1:
@@ -6003,117 +6213,11 @@ RX0_1:
 		clr tosh
 		sts rbuf0_rd,XL
 		out_ SREG,t0
-								; char read  -> switch on LED
-		sbrs FLAGS2,fLOADled	; .. if it is NOT in use by CPU_LOAD_LED
-		  .if CPU_LOAD_LED_POLARITY == 1
-			sbi_ CPU_LOAD_PORT,CPU_LOAD_BIT
-		  .else
-			cbi_ CPU_LOAD_PORT,CPU_LOAD_BIT
-		  .endif
-		ret
-
-;***************************************************
-		fdw		SCAN_L
-; RX0?  ( -- n )				return the number of characters in queue
-RX0Q_L:
-		.db		NFA|INLINE4|4,"rx0?",0xff
-RX0Q:
-		pushtos
-		lds tosl,rbuf0_lv
-		ldi tosh,0				; 5 / 7
-		ret
-
-
-		fdw		RPFETCH_L
-ROT_L:
-		.db		NFA|3, "rot"
-ROT:
-		 pop_t5t4
-		 pop_t1t0
-		 push_t5t4
-		 pushtos
-		 movw TOP,t1t0			; 9 / 17
-		 ret
-
-
-; c@+  ( addr -- addr+1 n )
-;   dup 1+ swap c@ ;
-		fdw		COMMAXT_L
-CFETCHPP_L:
-		.db		NFA|3,"c@+"
-CFETCHPP:
-		rcall CFETCH
-		push_Z
-		ret
-
-
-; @+   ( addr -- addr+2 n )
-;   dup 2+ swap @ ;
-		fdw		L_FETCH_P
-FETCHPP_L:
-		.db		NFA|2,"@+",0xff
-FETCHPP:
-		rcall FETCH
-		push_Z
-		ret
-
-
-.if (FLASHEND < 0x1ffff)
-			fdw		WDOFF_L
-	; WD+ ( n -- )				n < 8, start watchdog timer
-	WDON_L:
-			.db		NFA|3,"wd+"
-	WDON:
-			cli
-			wdr
-			andi tosl,7
-			ori tosl,(1<<WDE)
-			ldi tosh,(1<<WDCE)|(1<<WDE)
-			sts WDTCSR,tosh
-			sts WDTCSR,tosl
-			sei
-			rjmp DROP_A
-
-
-			fdw		X_TO_R_L
-	; WD- ( -- )				stop the watchdog 
-	WDOFF_L:
-			.db		NFA|3,"wd-"
-	WDOFF:
-			cli
-			wdr
-  	.ifdef MCUSR
-				out MCUSR,r_zero
-  	.else
-				out MCUCSR,r_zero
-  	.endif
-			ldi t0,(1<<WDCE)|(1<<WDE)
-			sts WDTCSR,t0
-			sts WDTCSR,r_zero
-			sei
-			ret
-
-
-			fdw 	DZEROLESS_L
-	; cwd  ( -- )				kick watchdog
-	CWD_L:
-			.db		NFA|INLINE|3,"cwd"
-	;CWD:
-			wdr
-			ret
-.endif
-
-		 fdw		IMMEDQ_L
-IFLUSH_L:
-		.db		NFA|6,"iflush",0xff
-IFLUSH:
-		sbic FLAGS3,idirty
-		  rjmp IWRITE_BUFFER
-		ret
+	  ret
 
 
 .ifdef UCSR1A
-		fdw		RX1_Q_L				; ### check ###
+		fdw		???RX1_Q_L???	; ### check ###
 .else
 		fdw		ENDIT_L
 .endif
@@ -6130,9 +6234,13 @@ EMPTY:
 		rjmp DP_TO_RAM			; .. and copy to RAM
 
 
-WARM_0:
+		fdw		WORD_L
+WARM_L:
+		.db		NFA|4,"warm",0xff
+WARM_:
+		clt
+WARM_math:
 		clr YH
-
 	.ifdef MCUCSR
 			in_ R0,MCUCSR
 			out_ MCUCSR,YH
@@ -6141,7 +6249,7 @@ WARM_0:
 			in_ R0,MCUSR
 			out_ MCUSR,YH
 	.endif
-
+WARM_0:
 		in_ R1,SREG	
 		cli
 ; zero memory
@@ -6152,15 +6260,15 @@ WARM_1:							; clear register R2..R25 (r_zero, FLAGS1, FLAGS2, TOP included)
 		  cpi XL,26
 		brne WARM_1
 
-		in_ t0,OSCCAL			; save OSCCAL for ...
+		in_ t0,OSCCAL		; save OSCCAL for ...
 
-		ldi XL,28  				; clear ram from y register upwards (FLAGS3, cse included)
+		ldi XL,28  				; clear IO and RAM from Y register upwards (FLAGS3, cse included)
 WARM_2:
 		  st X+,r_zero
 		  cpi XH,HIGH(PEEPROM)	; up to the end of SRAM
 		brne WARM_2
 
-		out_ OSCCAL,t0			; .. flash + eeprom write timing
+		out_ OSCCAL,t0		; .. flash + eeprom write timing
 
 ; init empty flash buffer
 	    dec ibaseH				; 0xff
@@ -6283,6 +6391,9 @@ WARM_2:
 			ldi t1,HIGH(CPU_LOAD_VAL - 1)
 			out_ OCR1AH,t1
 			out_ OCR1AL,t0			; load counter is started by any interrupt
+			ldi t1,HIGH(CPU_LOAD_VAL / 2)
+			out_ TCNT1H,t1			; rounding: preset TCNT1 with half the value
+;			out_ TCNT1L,r_zero		; (save space)
   	  .ifdef TIMSK
 			ldi t0,(1<<OCIE1A)
 			out_ TIMSK,t0
@@ -6322,12 +6433,9 @@ WARM_2:
   .endif
 .endif
 								; init rbuf0 pointer
-		;sts rbuf0_lv  ,r_zero		; level starts at 0000
-		;sts rbuf0_lv+1,r_zero
-;		ldi t1,HIGH(rbuf0)			; rbuf0 on page boundary!!
-;		sts rbuf0_wr+1,t1
-;		sts rbuf0_rd+1,t1
-
+		;sts rbuf0_lv,r_zero		; (done with RAM init)
+		;sts rbuf0_rd,r_zero
+		;sts rbuf0_wr,r_zero
 
 	; init UART1
 	.ifdef UBRR1L
@@ -6354,8 +6462,8 @@ WARM_2:
   	  .endif
 	.endif
 	.ifdef rbuf1_lv
-			sts     rbuf1_lv, r_zero
-			sts     rbuf1_wr, r_zero
+			;sts     rbuf1_lv, r_zero		; (done with RAM init)
+			;sts     rbuf1_wr, r_zero
 	.endif
 
 		rcall DP_TO_RAM
@@ -6413,20 +6521,53 @@ STARTQ1:						; no key -> execute
 STARTQ2:
 		rjmp ABORT
 
-;.equ partlen = strlen(partstring)
-.equ datelen = strlen(DATE)
+		fdw		RPFETCH_L
+ROT_L:
+		.db		NFA|3, "rot"
+ROT:
+		 pop_t5t4
+		 pop_t1t0
+		 push_t5t4
+		 pushtos
+		 movw TOP,t1t0			; 9 / 17
+		 ret
 
-		fdw		WDON_L
-VER_L:
-		.db		NFA|3,"ver"
-VER:
-		rcall XSQUOTE
-		;        123456789012345678901234567890123456    7
-		;.db 37," OptiForth 5.6d ATmega328 dd.mm.yyyy",0xd
-		.db 27+datelen," OptiForth 5.6d ATmega328 ",DATE,0xd		;partstring
-TYPE_A:
-		rjmp TYPE
 
+.if (FLASHEND < 0x1ffff)
+			fdw		WDOFF_L
+	; WD+ ( n -- )				n < 8, start watchdog timer
+	WDON_L:
+			.db		NFA|3,"wd+"
+	;WDON:
+			cli
+			wdr
+			andi tosl,7
+			ori tosl,(1<<WDE)
+			ldi tosh,(1<<WDCE)|(1<<WDE)
+			out_ WDTCSR,tosh
+			out_ WDTCSR,tosl
+			sei
+			rjmp DROP_A
+
+
+			fdw		X_TO_R_L
+	; WD- ( -- )				stop the watchdog 
+	WDOFF_L:
+			.db		NFA|3,"wd-"
+	WDOFF:
+			cli
+			wdr
+  	.ifdef MCUSR
+				out_ MCUSR,r_zero
+  	.else
+				out_ MCUCSR,r_zero
+  	.endif
+			ldi t0,(1<<WDCE)|(1<<WDE)
+			out_ WDTCSR,t0
+			out_ WDTCSR,r_zero
+			sei
+			ret
+.endif
 
 ;*******************************************************
 ; ;i ( -- )						end definition of user interrupt routine
@@ -6486,14 +6627,15 @@ LITERAL:
 		mov tosh,tosl
 		ldi t1,regtosl			; 'ldi regl,<lit.0>'
 		rcall LITERAL_1
+
 		mov tosl,tosh
-		ldi t1,regtosh			; '... regh,..'
+		ldi t1,regtosh			; 'ldi regh,<lit.1>'
 LITERAL_1:
 		swap tosh
-		andi tosl,0x0f
 		andi tosh,0x0f
-		or tosl,t1
+		andi tosl,0x0f
 		ori tosh,0xe0			; 'ldi ..,..'
+		or tosl,t1
 		rjmp ICOMMA
 
 #if 0
@@ -6579,56 +6721,6 @@ SOURCE_L:
 		 ret
 
 
-		fdw		 NONAME_L
-; /STRING ( a u n -- a+n u-n )	trim string
-;	swap over - >r + r> ;
-SLASHSTRING_L:
-		.db		NFA|7,"/string"
-;SLASHSTRING:
-		 movw t5t4,TOP			; n
-		 poptos					; u
-		 pop_t1t0				; a
-		 sub tosl,t4			; u-n
-		 sbc tosh,t5
-		 add t0,t4				; a+n
-		 adc t1,t5
-		 push_t1t0				; 11 / 17
-		 ret
-
-
-		fdw		DINVERT_L
-; DECIMAL ( -- )				set number base to decimal
-;	#10 BASE ! ;
-DECIMAL_L:
-		.db		NFA|7,"decimal"
-;DECIMAL: 
-		 ldi t0,0x0a
-BASE_STORE:
-		 movw Z,UP
-		 sbiw Z,(-ubase)
-		 st Z+,t0
-		 st Z+,r_zero			; 5 / 8
-		 ret
-
-		fdw		ICCOMMA_L
-; HEX ( -- )					set number base to hex
-;	#16 BASE ! ;
-HEX_L:
-		.db		NFA|3,"hex"
-;HEX:
-		 ldi t0,0x10
-		 rjmp BASE_STORE
-
-		fdw		CTON_L
-; BIN ( -- )					set number base to binary
-;	#2 BASE ! ;
-BIN_L:
-		.db		NFA|3,"bin"
-;BIN:
-		 ldi t0,2
-		 rjmp BASE_STORE
-
-
 ISTORERR:						; write access to kernel
 		rcall DOTS
 		rcall XSQUOTE
@@ -6636,17 +6728,18 @@ ISTORERR:						; write access to kernel
 		rcall TYPE
 		rjmp ABORT
 		
+IIFETCH_0:
+		eor ZL,ibaseL
 IIFETCH:
 		lpm_ tosl,Z+	     	; fetch from FLASH directly
-		brtc IIFETCH_1
+		brtc PC+2
 		  lpm_ tosh,Z+
-IIFETCH_1:
 		add_pflash_z
 		ret
 
 IFETCH:
 		sub_pflash_z
-
+IFETCH_0:
 	.ifdef RAMPZ
 			lds t0,ibaseu
 			cpi t0,RAMPZV
@@ -6655,7 +6748,25 @@ IFETCH:
 
 		cpse ZH,ibaseH
 		  rjmp IIFETCH
+IFETCH_buf:
 	  .if PAGESIZEB == 0x80
+		eor ZL,ibaseL
+		  brmi IIFETCH_0
+		ldi ZH,HIGH(ibuf)
+		ldd tosl,Z+0
+		brtc PC+2
+		  ldd tosh,Z+1
+		eor ZL,ibaseL
+		mov ZH,ibaseH
+		adiw Z,1
+		brtc PC+2
+		  adiw Z,1
+		add_pflash_z
+		ret
+	  .else
+		.error " Illegal value: PAGESIZEB"
+	  .endif
+/*	  .if PAGESIZEB == 0x80
 		mov XL,ZL				; ATmega328
 		eor XL,ibaseL			; ibaseL = x000 0000
 		  brmi IIFETCH			; bits 7 not equal -> go fetch directly
@@ -6671,20 +6782,13 @@ IFETCH:
 		;add XL, LOW(ibuf)		; ibuf on page boundary !!!
 		ldi XH,HIGH(ibuf)
 		ld tosl,X+
-		brtc IFETCH_1
+		adiw Z,1
+		brtc PC+3
 		  ld tosh,X+
-	  .if PAGESIZEB == 0x80
-IFETCH_1:						; ATmega328
-		eor XL,ibaseL			; restore bit 7
-		mov ZL,XL
-	  .else
-			  adiw Z,1
-	IFETCH_1:
-			adiw Z,1				; for 'FETCH_Zplus'
-	  .endif
+		  adiw Z,1
 		add_pflash_z
 		ret
-
+*/
 ISTORE_Z:
 ;		rcall IUPDATEBUF
 ;IUPDATEBUF:					; +++ begin inline IUPDATEBUF +++
@@ -6701,7 +6805,7 @@ ISTORE_Z:
 		cpi ZL, LOW(FLASH_HI-PFLASH+1) ; don't allow kernel writes
 		ldi t1,HIGH(FLASH_HI-PFLASH+1)
 		cpc ZH,t1
-		  brcc ISTORERR				; ### ff5.0 ignores write and sets buffer free ###
+		  brcc ISTORERR				; ### ignore write and set buffer free ###
 
 	  .ifndef RAMPZ
 		.if PAGESIZEB == 0x80		; ATmega328
@@ -6710,9 +6814,9 @@ ISTORE_Z:
 		  eor ZL,ibaseL
 		  brpl PC+4					; bits 7 equal -> skip buffer fill
 			eor ZL,ibaseL			; restore Z
-		XUPDATEBUF3:
+		  XUPDATEBUF3:
 			rcall IFILL_BUFFER
-			andi ZL,(PAGESIZEB-1)
+		    andi ZL,(PAGESIZEB-1)
 
 		.elif PAGESIZEB == 0x100
 				cp ZH,ibaseH
@@ -6754,14 +6858,14 @@ EFETCH:   sbic EECR,EEWE	rjmp EFETCH	; EEPROM ready?
 		out EEARL,ZL
 		out EECR,r_one			; (1<<EERE)
 		in tosl,EEDR
-		  brtc EFETCH_leave
 		adiw Z,1
+		  brtc EFETCH_leave
 		out EEARH,ZH				
 		out EEARL,ZL
 		out EECR,r_one			; (1<<EERE)
 		in tosh,EEDR
-EFETCH_leave:
 		adiw Z,1				; for 'FETCH_Zplus'
+EFETCH_leave:
 		subi ZH,HIGH(-PEEPROM)
 		ret
 
@@ -6809,16 +6913,6 @@ FETCH_Zplus:
 		ret
 
 
-		fdw		L_PCFETCH
-; pc!  ( c -- )					store char to address in pointer
-PCSTORE_L:
-		.db		NFA|3,"pc!"
-PCSTORE:
-		clt
-		movw Z,P
-		rjmp STORE_Z
-
-
 		fdw		CR_L
 ; c@  ( adr -- c )				fetch char from adr
 CFETCH_L:
@@ -6832,6 +6926,28 @@ CFETCH_Zplus:
 		  brcc CFETCH1
 		ld tosl,Z+
 		ret
+
+
+		fdw		L_PCFETCH
+; pc!  ( c -- )					store char to address in pointer
+PCSTORE_L:
+		.db		NFA|3,"pc!"
+PCSTORE:
+/*		movw Z,P					; can be inlined and double speed in RAM
+		cpi ZH,HIGH(PEEPROM)		; (speed vs. size)
+		brcs PCSTORE_RAM
+		  clt
+		  call STORE1
+		  rjmp PCSTORE_exit
+PCSTORE_RAM:
+		std Z+0,tosl
+		poptos
+PCSTORE_exit:
+		ret
+*/
+		clt
+		movw Z,P
+		rjmp STORE_Z
 
 
 		fdw		NUM_L
@@ -6892,6 +7008,19 @@ PFETCH:
 PSTORE_L:
 		.db		NFA|2,"p!",0xff
 PSTORE:
+/*		movw Z,P					; can be inlined and double speed in RAM
+		cpi ZH,HIGH(PEEPROM)		; (speed vs. size)
+		brcs PSTORE_RAM
+		  set
+		  call STORE1
+		  rjmp PSTORE_exit
+PSTORE_RAM:
+		std Z+1,tosh
+		std Z+0,tosl
+		poptos
+PSTORE_exit:
+		ret
+*/
 		set
 		movw Z,P
 		rjmp STORE_Z
@@ -6909,10 +7038,6 @@ MS:
 		add tosl,t0
 		adc tosh,t1
 MS1:
-		.if IDLE_MODE == 0
-		  sbrc FLAGS2,fSINGLE
-			rcall SLEEP_		; enter sleep mode when in 'single task'
-		.endif
 		  rcall PAUSE
 		  movw t1t0,MS_COUNT
 		  cp  t0,tosl
@@ -6928,7 +7053,6 @@ PAUSE_L:
 PAUSE:
 		movw Z,UP
 	.if IDLE_MODE == 0
-		sbr FLAGS2,(1<<fSINGLE)	; set 'single task'-flag
 	.elif IDLE_MODE == 1
 	  IDLE_LOAD:				; +++ inline IDLE_LOAD +++
 			sbrs FLAGS2,fIDLE
@@ -7004,10 +7128,6 @@ PAUSE:
 		cp  XL,upL				; UP = ulink?
 		cpc XH,upH
 		  breq PAUSE_exit		; ..yes -> single task, no switching
-
-	  .if IDLE_MODE == 0
-		cbr FLAGS2,(1<<fSINGLE)	; clear 'single task'-flag
-	  .endif
 							; switch task
 		in_ t1,SREG
 		cli
@@ -7038,20 +7158,20 @@ PAUSE_exit:
 		ret						; 36 / 13..55+4 (busy)
 
 
-		fdw		QABORT_L
+		fdw		ONEUNTIL_L
 SCALE_L:
 		.db		NFA|6,"1024*/",0xff
 SCALE:
 		pop_t1t0
 SCALE_0:
-		rcall umstar0_0			;	product.l in TOP, product.h in t7:t6
-		lsr t7	ror t6	ror tosh	; '1.024 /' by shifting right 
-		lsr t7	ror t6	ror tosh	
-		mov tosl,tosh				; .. and dropping lower 8 bits
+		rcall umstar0_0			;	product32 in t7:t6:t5:t4
+		lsr t7	ror t6	ror t5	; '1.024 /' by shifting right 
+		lsr t7	ror t6	ror t5	
+		mov tosl,t5				; .. and dropping lower 8 bits
 		mov tosh,t6
 		adc tosl,r_zero			; rounding
-		adc tosh,r_zero
-		ret						; 14 / 38+4
+		adc tosh,r_zero			; 14 / 37
+		ret			
 
 
 		fdw		UDDOT_L
@@ -7061,14 +7181,14 @@ UDSTAR_L:
 ;UDSTAR:
 		movw t1t0,TOP			; u    in t1t0 
 		poptos					; ud.h in TOP
-		rcall umstar0_0			; ud.h * u -> t7:t6:TOP, t1t0 unchanged
-		movw A,TOP				; save low part, drop high part (t7:t6)
+		rcall umstar0_0			; ud.h * u -> t7:t6:t5:t4, t1t0 unchanged
+		movw A,t5t4				; save low part, drop high part (t7:t6)
 		poptos					; ud.l in TOP
-		rcall umstar0_0			; ud.l * u -> t7:t6:TOP
-		pushtos					; push low part
-		movw TOP,t7t6			; get high part
-		add tosl,al				; accumulate high part to ud'.h
-		adc tosh,ah				; 13 / 65
+		rcall umstar0_0			; ud.l * u -> t7:t6:t5:t4
+		push_t5t4				; push low part
+		movw TOP,A				; get high part
+		add tosl,t6				; accumulate high part to ud'.h
+		adc tosh,t7				; 13 / 63
 		ret
 
 
@@ -7076,8 +7196,8 @@ UDSTAR_L:
 UMSTAR_L:
 		.db		NFA|3,"um*"
 UMSTAR:
-		 rcall umstar0			; product.l in tos, product.h in t7:t6
-		 pushtos
+		 rcall umstar0			; product32 in t7:t6:t5:t4
+		 push_t5t4
 		 movw TOP,t7t6
 		 ret
 
@@ -7100,28 +7220,13 @@ GCD_xxx:
 		 ret
 
 
-usm0_err:
-		set
-		rjmp WARM_0
-
-
 		fdw		HEX_L
 ; gcd (u1 u2 -- gcd )		greatest common divider
 GCD_L:
 		.db		NFA|3,"gcd"
 GCD:
-/*		movw t5t4,TOP
-		poptos
-GCD_0:
-		  rcall uslashmod0
-		  movw TOP,t5t4
-		  movw t5t4,t3t2
-		or t3,t2
-		brne GCD_0
-		ret
-*/
-		pop_t1t0					; much faster w/o 'mod'
-GCD_0:
+		pop_t1t0
+GCD_loop:
 		cp  tosl,t0
 		cpc tosh,t1
 		  breq GCD_xxx
@@ -7129,12 +7234,17 @@ GCD_0:
 GCD_u2less:
 		sub t0,tosl
 		sbc t1,tosh
-		rjmp GCD_0
+		rjmp GCD_loop
 
 GCD_u1less:
 		sub tosl,t0
 		sbc tosh,t1
-		rjmp GCD_0
+		rjmp GCD_loop
+
+
+usm0_err:
+		set
+		rjmp WARM_math
 
 
 		fdw		ULESS_L
@@ -7312,7 +7422,7 @@ SLASH_L:
 		eor t0,tosh
 		push t0					; save 'sign xor sign'
 		sbrc tosh,7
-		  rcall NEGATE
+		  rcall NEGATE			; (speed vs. size)
 		tst t5
 		brpl SLASH_1
 		  com t4
@@ -7323,7 +7433,7 @@ SLASH_1:
 
 		pop t0					; resulting sign
 		sbrc t0,7
-		  rjmp NEGATE
+		  rjmp NEGATE			; (speed vs. size)
 		ret
 
 
@@ -7340,7 +7450,7 @@ PLUSSTORE_L:
 		rjmp STORE_Z
 
 
-		fdw		MCFETCH_L
+		fdw		MCSTORE_L
 MAX_L:
 		.db		NFA|3,"max"
 MAX:
@@ -7435,154 +7545,6 @@ FEXECUTE:
 		rjmp EXECUTE
 
 
-;*************************************************************
-; Coded for max 256 byte pagesize !
-; if ((ibaselo != (iaddrlo & ~(PAGESIZEB-1))) | (ibaseH != iaddrh) | (ibaseu != iaddru))
-;   if (idirty)
-;       writebuffer_to_imem
-;   endif
-;   fillbuffer_from_imem
-;   ibaselo = iaddrlo & ~(PAGESIZEB-1)
-;   ibasehi = iaddrhi
-;endif
-IFILL_BUFFER:					; org address in Z
-		sts iaddrH,ZH
-		sts iaddrL,ZL
-		sbic FLAGS3, idirty
-		  rcall IWRITE_BUFFER
-		lds ZL,iaddrL
-		lds ZH,iaddrH
-		andi ZL,~(PAGESIZEB-1)
-		movw IBASE,Z
-	.ifdef RAMPZ
-	    	lds t0,iaddru
-	    	sts ibaseu,t0
-	    	out_ RAMPZ, t0
-	.endif
-IFILL_BUFFER_1:					; fill buffer from FLASH
-		ldi t0,0xff
-		ldi16 X,ibuf				; ibuf on page boundary !!
-IFILL_BUFFER_2:
-		  lpm_ t1,Z+
-		  st X+,t1
-		  and t0,t1					; check for programmed bytes
-		  cpi XL, LOW(ibuf+PAGESIZEB)	; ibuf on page boundary !!
-		brne IFILL_BUFFER_2
-		
-		cbi FLAGS3,fFLASH_PAGE_CLEAR
-		cpi t0,0xff
-		brne PC+2
-		  sbi FLAGS3,fFLASH_PAGE_CLEAR	; all bytes in page = 0xff -> don't need to erase page
-
-	  .ifdef RAMPZ
-			ldi t0,RAMPZV
-			out_ RAMPZ,t0
-	  .endif
-		lds ZL,iaddrL
-		ret
-
-IWRITE_BUFFER:
-	.if OPERATOR_UART == 0
-	  .if U0FC_TYPE == 0
-	;  .elif U0FC_TYPE == 1
-	;		sbrs FLAGS2,ixoff_tx0
-	;		  rcall XXOFF_TX0
-	;  .elif U0FC_TYPE == 2
-	;		sbi_ U0RTS_PORT, U0RTS_BIT
-	  .else .error "illegal value: U0FC_TYPE"
-	  .endif
-	.else  ;; UART1
-	  .if U1FC_TYPE == 1
-			rcall   DOLIT
-			.dw     XOFF
-			rcall    EMIT
-	  .elif U1FC_TYPE == 2
-			sbi_    U1RTS_PORT, U1RTS_BIT
-	  .endif
-	.endif
-
-	.ifdef RAMPZ
-	    	lds t0,ibaseu
-	    	out_ RAMPZ,t0
-	.endif
-
-IWR_BUF_waitEE:	 sbic EECR,EEPE		rjmp IWR_BUF_waitEE	; EEPROM write in progress?
-
-	.if DEBUG_FLASH == 1
-		 	pushtos
-		 	movw TOP,MS_COUNT
-	.endif
-		
-		push R20				; pl (boot loader compatibility)
-		ldi16 X,ibuf
-		rcall WRITE_FLASH_PAGE	; leaves Z = ibase
-		pop R20
-		
-		ldi t0,LOW(PAGESIZEB-1)
-		ldi16 X,ibuf			; read back and check
-IWRITE_BUFFER2:
-		  lpm_ R0,Z+
-		  ld R1,X+
-		  cpse R0,R1
-		    rjmp WARM_0    		; reset if write error
-		subi t0,1
-		brcc IWRITE_BUFFER2
-
-		cbi FLAGS3,idirty
-		mov ibaseH,t0			; 0xff -> 'ibuf empty'-marker
-
-	.ifdef RAMPZ
-			sts ibaseu,t0		; 0xff
-			ldi t0,RAMPZV
-			out_ RAMPZ,t0
-	.endif
-
-	.if OPERATOR_UART == 0
-  	  .if U0FC_TYPE == 0
-	;  .elif U0FC_TYPE == 1
-	;		 rcall XXON_TX0
-	;  .elif U0FC_TYPE == 2
-	;		cbi_ U0RTS_PORT,U0RTS_BIT
-	  .else .error "illegal value: U0FC_TYPE"
-	  .endif
-	.else
-	  .if U1FC_TYPE == 1
-			rcall   DOLIT
-			.dw     XON
-			rcall    EMIT
-	  .elif U1FC_TYPE == 2
-			cbi_    U1RTS_PORT, U1RTS_BIT
-	  .endif
-	.endif
-
-	.if DEBUG_FLASH == 1
-		 	 sub tosl,ms_countL		; write time [ms] as single ASCII to operator UART
-		 	 neg tosl
-		 	 subi tosl,-'0'
-		.if   OPERATOR_UART == 0
-			 	rjmp TX0_quick
-		.elif OPERATOR_UART == 1
-			 	rjmp TX1_quick
-		.else 
-			 	rjmp DROP
-		.endif
-	.else	; (DEBUG_FLASH <> 1)
-			 ret
-	.endif
-
-
-OF_ISR_EXIT:
-;		   pop t3						; when used in user interrupt-words only
-;		   pop t2						; --------------------------------------
-		 pop t1
-		 pop t0
-		 pop ZH					; t7	
-		 pop ZL					; t6
-		 out_ SREG,SREG_intSafe
-  		 movw X,X_intSafe		; t5:t4
-		 reti
-
-
 .if CPU_LOAD == 1
 	MS_TIMER_LOAD:
 		inc ms_countL
@@ -7591,8 +7553,8 @@ OF_ISR_EXIT:
 		  inc ms_countH
 	MTL_0:
 		  sts load_res,loadreg
-		  ldi loadreg,HIGH(CPU_LOAD_VAL / 2)	; rounding
-		  out_ TCNT1H,loadreg
+;		  ldi loadreg,HIGH(CPU_LOAD_VAL / 2)	; rounding
+;		  out_ TCNT1H,loadreg	; (done in 'WARM_')
 		  out_ TCNT1L,r_zero	; triggers 16-bit write
 		  clr loadreg			; reset load-counter
 	MTL_xxx:
@@ -7601,6 +7563,26 @@ OF_ISR_EXIT:
 .elif CPU_LOAD > 1
 		.error "illegal value: CPU_LOAD"
 .endif
+
+.org BOOT_START - 0x2f
+OF_ISR_EXIT:
+;		pop t3					; save ticks ... activate when needed
+;		pop t2					; ###################### see 'OF_ISR' ##############################
+		pop t1
+		pop t0
+		pop ZH					; t7	
+		pop ZL					; t6
+		out_ SREG,SREG_intSafe
+  		movw X,intSafe16		; t5:t4
+		reti
+		.dw 0xffff,0xffff		; ############### placeholder for 'pop t2    pop t3' ###############
+		 
+.org BOOT_START - 0x26
+RX0_VECTOR:
+		movw intSafe16,Z
+		lds ZL,(URXCaddr+ivec)
+		lds ZH,(URXCaddr+ivec+1)
+		mijmp
 
 .org BOOT_START - 0x20			; DO NOT CHANGE !! (requires reburning of bootloader part)
 MS_TIMER_ISR:
@@ -7622,25 +7604,25 @@ MS_TIMER_ISR:
 
 .org BOOT_START - 0x1b			; DO NOT CHANGE !! (requires reburning of bootloader part)
 OF_ISR:
-		movw X_intSafe,X		; t5:t4
+		movw intSafe16,X		; t5:t4
 	.if CPU_LOAD == 1
 		  ldi XL,9
 		  out_ TCCR1B,XL		; restart load-timer (CTC, /1)
 	.endif
 
-		mov XL,INTvector
-		in_ SREG_intSafe,SREG	; (INTvector = SREG_intSafe = R19)
 		push ZL					; t6
 		push ZH					; t7
 		push t0
 		push t1
-;		  push t2						; when used in user interrupt-words only
-;		  push t3						; --------------------------------------
+;		push t2					; save ticks ... activate when needed
+;		push t3					; ###################### see 'OF_ISR_EXIT' #########################
+		mov XL,INTvector
 		ldi XH,HIGH(ivec)
+		in_ SREG_intSafe,SREG	; (INTvector = SREG_intSafe = R19)
 		ld ZL,X+
 		ld ZH,X+
 		mijmp
-		  .dw 0xffff,0xffff				; ... comment out when t3, t2 are used
+		.dw 0xffff,0xffff		; ############### placeholder for 'push t2    push t3' ############# 
 	.if CPU_LOAD == 0
 		  .dw 0xffff,0xffff,0xffff
 	.elif CPU_LOAD == 1
@@ -7740,8 +7722,8 @@ WARM_VECTOR:
 ; ################################################################################ ;
 
 ;.equ HW_VER   = 3
-;.equ SW_MAJOR = 5
-;.equ SW_MINOR = 6d
+.equ SW_MAJOR = 5
+.equ SW_MINOR = $6d
 
 ; 1 - ###############
 ;     select MCU type
@@ -7914,12 +7896,11 @@ WARM_VECTOR:
 	.equ DO_PAGE_ERASE		= BOOT_START + 0x34
 	.equ DO_SPM				= BOOT_START + 0x35
 	.equ WRITE_FLASH_PAGE	= BOOT_START + 0xe0
-	.equ lastword			= BOOT_START + 0xfd
 .else 								;with bootloader
 
 	.cseg
 	.org BOOT_START
-	RESET_:		rjmp BOOT
+	RESET_:		rjmp BOOT			;BOOT_freq		; for the (bricked) 32 MHz Arduino ONLY
 				rjmp DO_SPM
 	.org BOOT_START + 0x02
 				ldi INTvector,0x02 + LOW(ivec)
@@ -7931,13 +7912,13 @@ WARM_VECTOR:
 				ldi INTvector,0x06 + LOW(ivec)
 	            rjmp OF_ISR
 	.org BOOT_START + 0x08
-	.if MS_TIMER_ADDR == 0x08
+	  .if MS_TIMER_ADDR == 0x08
 	            rjmp  MS_TIMER_ISR
 				.dw 0xffff
-	.else
+	  .else
 				ldi INTvector,0x08 + LOW(ivec)
 	            rjmp OF_ISR
-	.endif
+	  .endif
 	.org BOOT_START + 0x0a
 				ldi INTvector,0x0a + LOW(ivec)
 	            rjmp OF_ISR
@@ -7945,107 +7926,97 @@ WARM_VECTOR:
 				ldi INTvector,0x0c + LOW(ivec)
 	            rjmp OF_ISR
 	.org BOOT_START + 0x0e
-	.if MS_TIMER_ADDR == 0x0e
+	  .if MS_TIMER_ADDR == 0x0e
 	            rjmp  MS_TIMER_ISR
 				.dw 0xffff
-	.else
+	  .else
 				ldi INTvector,0x0e + LOW(ivec)
 	            rjmp OF_ISR
-	.endif
+	  .endif
 	.org BOOT_START + 0x10
 				ldi INTvector,0x10 + LOW(ivec)
 	            rjmp OF_ISR
 	.org BOOT_START + 0x12
-	.if MS_TIMER_ADDR == 0x12
+	  .if MS_TIMER_ADDR == 0x12
 	            rjmp  MS_TIMER_ISR
-				.dw 0xffff
-	.else
-				ldi INTvector,0x12 + LOW(ivec)
-	            rjmp OF_ISR
-	.endif
-	.org BOOT_START + 0x14
-	.if MS_TIMER_ADDR == 0x14
-	            rjmp  MS_TIMER_ISR
-				.dw 0xffff
-	.else
-				ldi INTvector,0x14 + LOW(ivec)
-	            rjmp OF_ISR
-	.endif
-	.org BOOT_START + 0x16					; TIMER1_COMPA
-	.if MS_TIMER_ADDR == 0x16
-	            rjmp  MS_TIMER_ISR
-				.dw 0xffff
-	.else
-				in_ SREG_intSafe,SREG
-				rjmp INTx16_VECTOR
-	.endif
-	.org BOOT_START + 0x18
-	.if MS_TIMER_ADDR == 0x18
-	            rjmp  MS_TIMER_ISR
-				.dw 0xffff
-	.else
-				ldi INTvector,0x18 + LOW(ivec)
-	            rjmp OF_ISR
-	.endif
-	.org BOOT_START + 0x1a
-	.if MS_TIMER_ADDR == 0x1a
-	            rjmp  MS_TIMER_ISR
-				.dw 0xffff
-	.else
-				ldi INTvector,0x1a + LOW(ivec)
-	            rjmp OF_ISR
-	.endif
-	.org BOOT_START + 0x1c
-	.if MS_TIMER_ADDR == 0x1c
-	            rjmp  MS_TIMER_ISR
-				.dw 0xffff
-	.else
-				ldi INTvector,0x1c + LOW(ivec)
-	            rjmp OF_ISR
-	.endif
-	.org BOOT_START + 0x1e
-	.if MS_TIMER_ADDR == 0x1e
-	            rjmp  MS_TIMER_ISR
-				.dw 0xffff
-	.else
-				ldi INTvector,0x1e + LOW(ivec)
-	            rjmp OF_ISR
-	.endif
-	.org BOOT_START + 0x20
-	.if MS_TIMER_ADDR == 0x20
-	            rjmp  MS_TIMER_ISR
-				.dw 0xffff
-	.else
-				ldi INTvector,0x20 + LOW(ivec)
-	            rjmp OF_ISR
-	.endif
-	.org BOOT_START + 0x22
-	.if MS_TIMER_ADDR == 0x22
-	            rjmp  MS_TIMER_ISR
-				.dw 0xffff
-	.else
-				ldi INTvector,0x22 + LOW(ivec)
-	            rjmp OF_ISR
-	.endif
-	.org BOOT_START + 0x24
-				ldi INTvector,0x24 + LOW(ivec)
-				rjmp OF_ISR
-	.if 0x26 < INT_VECTORS_SIZE
-	.org BOOT_START + 0x26
-	  .if UDREaddr == 0x26
-				rjmp UDRE_VECTOR
 				.dw 0xffff
 	  .else
-				ldi INTvector,0x26 + LOW(ivec)
-				rjmp OF_ISR
+				ldi INTvector,0x12 + LOW(ivec)
+	            rjmp OF_ISR
 	  .endif
-	.endif
-	.if 0x28 < INT_VECTORS_SIZE
+	.org BOOT_START + 0x14
+	  .if MS_TIMER_ADDR == 0x14
+	            rjmp  MS_TIMER_ISR
+				.dw 0xffff
+	  .else
+				ldi INTvector,0x14 + LOW(ivec)
+	            rjmp OF_ISR
+	  .endif
+	.org BOOT_START + 0x16					; TIMER1_COMPA
+	  .if MS_TIMER_ADDR == 0x16
+	            rjmp  MS_TIMER_ISR
+				.dw 0xffff
+	  .else
+				in_ SREG_intSafe,SREG
+				rjmp INTx16_VECTOR
+	  .endif
+	.org BOOT_START + 0x18
+	  .if MS_TIMER_ADDR == 0x18
+	            rjmp  MS_TIMER_ISR
+				.dw 0xffff
+	  .else
+				ldi INTvector,0x18 + LOW(ivec)
+	            rjmp OF_ISR
+	  .endif
+	.org BOOT_START + 0x1a
+	  .if MS_TIMER_ADDR == 0x1a
+	            rjmp  MS_TIMER_ISR
+				.dw 0xffff
+	  .else
+				ldi INTvector,0x1a + LOW(ivec)
+	            rjmp OF_ISR
+	  .endif
+	.org BOOT_START + 0x1c
+	  .if MS_TIMER_ADDR == 0x1c
+	            rjmp  MS_TIMER_ISR
+				.dw 0xffff
+	  .else
+				ldi INTvector,0x1c + LOW(ivec)
+	            rjmp OF_ISR
+	  .endif
+	.org BOOT_START + 0x1e
+	  .if MS_TIMER_ADDR == 0x1e
+	            rjmp  MS_TIMER_ISR
+				.dw 0xffff
+	  .else
+				ldi INTvector,0x1e + LOW(ivec)
+	            rjmp OF_ISR
+	  .endif
+	.org BOOT_START + 0x20
+	  .if MS_TIMER_ADDR == 0x20
+	            rjmp  MS_TIMER_ISR
+				.dw 0xffff
+	  .else
+				ldi INTvector,0x20 + LOW(ivec)
+	            rjmp OF_ISR
+	  .endif
+	.org BOOT_START + 0x22
+	  .if MS_TIMER_ADDR == 0x22
+	            rjmp  MS_TIMER_ISR
+				.dw 0xffff
+	  .else
+				ldi INTvector,0x22 + LOW(ivec)
+	            rjmp OF_ISR
+	  .endif
+	.org BOOT_START + 0x24						; USART_RX
+				rjmp RX0_VECTOR
+				.dw 0xffff
+	.org BOOT_START + 0x26						; USART_UDRE
+				rjmp UDRE_VECTOR
+				.dw 0xffff
 	.org BOOT_START + 0x28
 				ldi INTvector,0x28 + LOW(ivec)
 	            rjmp OF_ISR
-	.endif
-	.if 0x2a < INT_VECTORS_SIZE
 	.org BOOT_START + 0x2a
 	  .if MS_TIMER_ADDR == 0x2a
 	            rjmp  MS_TIMER_ISR
@@ -8054,27 +8025,18 @@ WARM_VECTOR:
 				ldi INTvector,0x2a + LOW(ivec)
 	            rjmp OF_ISR
 	  .endif
-	.endif
-	.if 0x2c < INT_VECTORS_SIZE
 	.org BOOT_START + 0x2c
 				ldi INTvector,0x2c + LOW(ivec)
 	            rjmp OF_ISR
-	.endif
-	.if 0x2e < INT_VECTORS_SIZE
 	.org BOOT_START + 0x2e
 				ldi INTvector,0x2e + LOW(ivec)
 	            rjmp OF_ISR
-	.endif
-	.if 0x30 < INT_VECTORS_SIZE
 	.org BOOT_START + 0x30
 				ldi INTvector,0x30 + LOW(ivec)
 	            rjmp OF_ISR
-	.endif
-	.if 0x32 < INT_VECTORS_SIZE
 	.org BOOT_START + 0x32
 				ldi INTvector,0x32 + LOW(ivec)
 	            rjmp OF_ISR
-	.endif
 	
 	.org BOOT_START + 0x34			; DO NOT CHANGE !! ########################
 	DO_PAGE_ERASE:
@@ -8489,16 +8451,21 @@ WARM_VECTOR:
 		rcall getch					; get  lengthL - big endian
 		mov R20, R24				; R20 = lengthL
 		rcall getch
-		bst R24, 0					; put Bit0 into T ('E' set, 'F' clear)
+		bst R24, 0					; put bit0 into T ('E' set, 'F' clear)
 		ret	
 
-.org BOOT_START + 0xfc
-		fdw		MARKER_L
-lastword:
-WARM_L:
-		.db		NFA|4,"warm",0x05
-;.org 0x0000
-;		rjmp WARM_VECTOR
+; for the (bricked) 32 MHz Arduino ONLY
+/*	BOOT_freq:
+		ldi R24,(1<<CLKPCE)
+		out_ CLKPR,R24
+		clr R24
+		out_ CLKPR,R24
+		rjmp BOOT
+
+	.dw 0xffff,0xffff
+*/
+.org FLASHEND
+	.db SW_MINOR,SW_MAJOR
 
 .endif ; (appendBOOTLOADER == 1)
 
