@@ -5,10 +5,12 @@ new core words
   branch on processor Z-flag, no stack action!
 
 0until ( -- )                   \  'dup 0= until'
-  loop back on processor Z-flag set, no stack action! small loops only!
+  loop back on processor Z-flag, no stack action! small loops only!
+  loop until Z-flag is set (e.g. checked bit is 0)
 
 1until ( -- )                   \  'dup 0 <> until'
-  loop back on processor Z-flag cleared, no stack action! small loops only!
+  loop back on processor Z-flag, no stack action! small loops only!
+  loop until Z-flag is cleared (e.g. checked bit is 1)
 
 mtst0 ( mask adr -- )
   check adr with mask, leaves no flag on stack, to be used with
