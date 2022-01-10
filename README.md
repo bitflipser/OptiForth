@@ -16,8 +16,8 @@ the package (with the exception 'withBOOTLOADER = 0')
 
 OptiForth uses 115.200 baud, 8n1, no handshake and sends CR w/o LF (see
 the appropriate setting of your terminal program).
-If you are using a terminal program capable of sending transmit delays 
-(e.g. TeraTerm, see 'teraterm.ini') usually transmit delays of 
+It requires a terminal program capable of sending transmit delays
+(e.g. TeraTerm, see 'teraterm.ini'). Usually transmit delays of 
  > '0 msec/char' and 
  > '20 msec/line' are sufficient. 
 If you have trouble with this setting, double the time/line.
@@ -25,7 +25,7 @@ If you have trouble with this setting, double the time/line.
 The OptiForth-kernel can be rewritten over USB using avrdude or similar.
 The avrdude parameters look like that (all together in one line!):
  -C"[avrdude-path]/avrdude.conf"
- -v -v -patmega328p -carduino -PCOMxx -b250000 -D 
+ -v -v -patmega328p -carduino -PCOM[your COM-port] -b250000 -D 
  -Ueeprom:w:"[OptiForth-path]\OptiForth52.eep":i 
  -Uflash:w:"[OptiForth-path]\OptiForth52.hex":i 
 (all together in one line!)
