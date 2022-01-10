@@ -1,0 +1,86 @@
+\ *********************************************************************
+\    Filename:      sieve4.of                                         *
+\    Date:          17.02.2021                                        *
+\    MCU:           ATmega328P                                        *
+\    Copyright:     bitflipser                                        *
+\    Author:        bitflipser                                        *
+\ *********************************************************************
+\ OptiForth is MIT licensed                                           *
+\ *********************************************************************
+\ Sieve of Eratosthenes                                                
+\ search and count pimes up to a given number                          
+\ search is done by marking all multiples of a found prime as non-prime
+\ all even numbers are skipped as multiples of 2, search starts with 3 
+\ allocates 8 bytes of RAM, uses the free RAM without allocating       
+\ the number is #16 times the amount of free RAM in bytes              
+\ ## changes all later defined variables ##                            
+-sieve4                                
+marker -sieve4                         
+decimal ram                            
+variable bmTab 6 allot                 
+here constant rhere                      \ speed-up bit-adr
+hi 1+ rhere - 8 * constant size4         \ free RAM space in bits
+: fill4 ( -- )                           \ fill free ram with $ff
+    rhere !p                           
+    [ size4 u2/ u2/ u2/ ] literal      
+    begin
+      $ff pc! p+
+    1- 0until drop
+;                                      
+: bit-addr ( bit -- bit mask eff-addr ) 
+    dup 7 and                          
+\   1 swap lshift                        \ slow
+    bmTab + mc@                          \ fast
+    over u2/ u2/ u2/ rhere +           
+; inlined                              
+: dup_>a [ $015c i, ] ;          inlined \ even  
+: a>_+   [ $0d8a i, $1d9b i, ] ; inlined \ faster
+: @p_+   [ $0f84 i, $1f95 i, ] ; inlined \ ...   
+                                       
+: sieve4 ( -- cnt )                         
+  decimal ram                                 
+  $0201   bmTab !                        \ initialize look-up table
+  [ bmTab 2+  $0804 ] literal literal !       
+  [ bmTab 4 + $2010 ] literal literal !       
+  [ bmTab 6 + $8040 ] literal literal !       
+  fill4                                  \ init free RAM
+  1                                      \ skip even, cnt from 1 for prime '2'
+  1 !p                                   \ start with '3' (bit position 1)
+  size4 for                                   
+    @p                                   \ ( cnt bit )
+    bit-addr mtst                        \ ( cnt bit f )
+    if                                 \ found prime -> mark multiples
+      2* 1+                              \ step:  bit * 2 + 1
+      dup_>a                             \ save step         
+      @p_+                               \ start: bit + step 
+      begin                              \ ( cnt bit' )
+        dup size4 u<         
+      while                    
+        bit-addr mclr           
+        a>_+                             \ add step ( cnt bit' -- cnt bit" )
+      repeat
+      drop              
+      1+                                 \ inc count ( cnt -- cnt+1 )
+    else
+      drop
+    then             
+    p+                                   \ next (odd) number
+  next                                 
+;                                      
+: bench4
+  ticks sieve4 ticks>n
+  cr
+  ." search and count primes up to "
+  size4 2* u. ." : "    
+  u. ." primes/" 
+  swap- u. ." ms"
+  cr
+;                                      
+$46 constant TCNT0
+: tfi4                                   \ print time for 'fill4'
+    0 TCNT0 c! ticks fill4 TCNT0 c@      \ use TCNT0 to increase
+    ticks rot - u.                       \ timer resolution (4 us)
+    $08 emit [char] , emit 4 * 3 u.r ." ms for fill4"
+;                                      
+tfi4
+bench4

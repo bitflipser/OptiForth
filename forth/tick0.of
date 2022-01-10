@@ -1,0 +1,53 @@
+\ *********************************************************************
+\    Filename:      tick0.of                                          *
+\    Date:          03.11.2021                                        *
+\    MCU:           ATmega328P                                        *
+\    Copyright:     bitflipser                                        *
+\    Author:        bitflipser                                        *
+\ *********************************************************************
+\ OptiForth is MIT licensed                                           *
+\ *********************************************************************
+\ helper words for more accurate measuring using system ticks counter  
+\ measure is done in steps of 4 microseconds                           
+-tick0                                   
+marker -tick0     
+decimal ram                       
+$46 constant TCNT0
+: tick0                           \ start measurement
+    0 TCNT0 c! ticks
+; inlined
+: tick0=                          \ stop measuring
+    TCNT0 c@ ticks
+; inlined
+: .tick0                          \ print time in micros
+    decimal
+    rot - u. $8 emit $2e emit
+    4 * 3 u.r
+;
+: tnip                            \ nip third element on stack
+    >r nip r>                     \ 'rot drop'
+; inlined
+: tt 
+    0 0
+    #50.000 begin
+      dup tnip 
+    1- 0until drop
+    2drop
+;
+: tt0 tick0 tt tick0= .tick0 ;
+: tr
+    0 0
+    #50.000 begin
+      dup inline rot drop
+    1- 0until drop
+    2drop
+;
+: tr0 tick0 tr tick0= .tick0 ;
+: s ;                         
+tick0 1 23 345 4567 56789 6789 789 89 9 tick0=
+tnip tnip tnip tnip tnip tnip tnip tnip tnip
+tick0 s s s s s s s s s tick0=
+
+
+.tick0    \ dictionary search time for 10 words:
+.tick0  \ search 10 words and convert 9 numbers:
