@@ -9,8 +9,9 @@ the kernel is loaded as a normal Arduino-sketch.
 But be aware that the bootloader runs with 250.000 baud.
 
 To put it on an ATmega328P/ARDUINO UNO R3 you have to use a programmer:
-- set the hi-fuse to 0xde and
+- set the hi-fuse to 0xde (Optiboot standard setting)
 - burn 'OptiForth56d_boot.hex' with -e (chip erase) option.
+
 The initial config is according to the settings in 'of56d_config.inc' in
 the package (with the exception 'withBOOTLOADER = 0')
 
@@ -26,8 +27,8 @@ The OptiForth-kernel can be rewritten over USB using avrdude or similar.
 The avrdude parameters look like that (all together in one line!):
  -C"[avrdude-path]/avrdude.conf"
  -v -v -patmega328p -carduino -PCOM[your COM-port] -b250000 -D 
- -Ueeprom:w:"[OptiForth-path]\OptiForth52.eep":i 
- -Uflash:w:"[OptiForth-path]\OptiForth52.hex":i 
+ -Ueeprom:w:"[OptiForth-path]\OptiForth56d.eep":i 
+ -Uflash:w:"[OptiForth-path]\OptiForth56d.hex":i 
 (all together in one line!)
 Be aware that:
 - the bootloader runs with 250.000 baud
